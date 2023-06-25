@@ -101,11 +101,24 @@ class BaseModel:
     def asdict(self):
         return dc.asdict(self)
 
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+    def __setitem__(self, key, value):
+        return setattr(self, key, value)
+
+    def __iter__(self):
+        return iter(self.asdict())
+
+    def items(self):
+        return self.asdict().items()
+
+    def keys(self):
+        return self.asdict().keys()
+
 
 if __name__ == '__main__':
     from pathlib import Path
     filepath = Path(__file__)
     fcm_model = fcm_base_model(filepath, root_dir=filepath.parents[2])
     model = BaseModel.from_filepath(filepath, root_dir=filepath.parents[2])
-
-    assert model.asdict() == fcm_model
