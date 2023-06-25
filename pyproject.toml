@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nbx_deux"
+authors = [
+    {name = "Dale Jung", email = "dale@dalejung.com"},
+]
+description = "Jupyter Notebook experiments. Rewrite of nbx."
+dependencies = [
+    "PyGithub",
+    'python-dotenv',
+]
+version = "0.1.0"
