@@ -6,6 +6,7 @@ Paths:
 import os
 import dataclasses as dc
 from datetime import datetime
+from typing import Any
 
 from jupyter_server import _tz as tz
 from jupyter_server.services.contents.filemanager import FileContentsManager
@@ -73,7 +74,7 @@ class BaseModel:
     last_modified: datetime
     created: datetime
     type: str | None = None
-    content: str | None = None
+    content: Any | None = None
     format: str | None = None
     mimetype: str | None = None
     size: int | None = None
