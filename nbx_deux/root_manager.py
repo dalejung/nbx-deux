@@ -1,3 +1,4 @@
+from nbx_deux.models import DirectoryModel
 from nbx_deux.nbx_manager import NBXContentsManager
 
 
@@ -41,11 +42,11 @@ class RootContentsManager(NBXContentsManager):
 
     def get_dir(self, path='', content=True, **kwargs):
         """ retrofit to use old list_dirs. No notebooks """
-        model = self._base_model(path)
-        model.type = 'directory'
         dirs = self._list_nbm_dirs()
-        model.content = dirs
-        model.format = 'json'
+        model = DirectoryModel.transient(
+            path,
+            content=dirs,
+        )
         return model
 
     def is_hidden(self, path):

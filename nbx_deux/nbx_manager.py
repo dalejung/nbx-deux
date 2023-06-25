@@ -11,11 +11,5 @@ class NBXContentsManager(ContentsManager):
     def _base_model(self, path=''):
         """Build the common base of a contents model"""
         # Create the base model.
-        now = datetime.now()
-        model = BaseModel(
-            name=path.rsplit('/', 1)[-1],
-            path=path,
-            last_modified=now,
-            created=now,
-        )
+        model = BaseModel.transient(path)
         return model

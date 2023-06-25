@@ -81,6 +81,25 @@ class BaseModel:
     writable: bool | None = None
 
     @classmethod
+    def transient(cls, path, **kwargs):
+        """
+        Helper function for models that aren't "real" like if displaying
+        weather info in filelistings.
+        """
+        now = datetime.now()
+
+        created = kwargs.pop('created', now)
+        last_modified = kwargs.pop('last_modified', now)
+
+        return cls(
+            name=path.rsplit('/', 1)[-1],
+            path=path,
+            created=created,
+            last_modified=last_modified,
+            **kwargs,
+        )
+
+    @classmethod
     def from_filepath(cls, os_path, root_dir=None):
         f_metadata = get_ospath_metadata(os_path)
 
@@ -115,6 +134,12 @@ class BaseModel:
 
     def keys(self):
         return self.asdict().keys()
+
+
+@dc.dataclass(kw_only=True)
+class DirectoryModel(BaseModel):
+    type: str = dc.field(default='directory', init=False)
+    format: str = dc.field(default='json', init=False)
 
 
 if __name__ == '__main__':
