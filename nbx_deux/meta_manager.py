@@ -10,6 +10,7 @@ from traitlets import (
 from jupyter_server.services.contents.filemanager import FileContentsManager
 from jupyter_server.services.contents.manager import ContentsManager
 from nbx_deux.nbx_manager import NBXContentsManager
+from nbx_deux.root_manager import RootContentsManager
 
 
 @dc.dataclass(kw_only=True)
@@ -49,13 +50,15 @@ class MetaManager(NBXContentsManager):
         if managers is None:
             managers = {}
         self.managers = managers
-        self.root = FileContentsManager(root_dir=self.root_dir)
+        self.root = RootContentsManager(meta_manager=self)
 
         # default probably should not exist. 
         # mostly here for testing / stubbing things out.
-        self.default = FileContentsManager(root_dir=self.root_dir)
+        self.managers['default'] = FileContentsManager(root_dir=self.root_dir)
 
     def get_nbm_from_path(self, path) -> tuple[ContentsManager, ManagerMeta]:
+        path = path.strip('/')
+
         # we are on root
         if not path:
             meta = ManagerMeta(
@@ -74,8 +77,9 @@ class MetaManager(NBXContentsManager):
             path=local_path,
         )
 
-        nbm = self.managers.get(nbm_path, self.default)
-
+        nbm = self.managers.get(nbm_path, None)
+        if nbm is None:
+            raise Exception(f"Could not find {nbm_path=} {path=}")
         return nbm, meta
 
     # ContentManager API
@@ -83,18 +87,28 @@ class MetaManager(NBXContentsManager):
         nbm, meta = self.get_nbm_from_path(path)
         model = nbm.get(meta.path, content=content, type=type, format=format)
 
+        # meh. if we're changing back to dict so quickly, maybe just use
+        # TypedDict instead?
+        if hasattr(model, 'asdict'):
+            model = model.asdict()
+
+        self.reanchor_paths_with_nbm_path(model, meta)
+
+        return model
+
+    def reanchor_paths_with_nbm_path(self, model, meta):
         # while the local manager doesn't know its nbm_path,
         # we have to add it back in for the metamanager.
         if model['type'] == 'directory':
-            content = model.get("content", [])
+            if not (content := model.get("content", [])):
+                return
+
             for m in content:
                 m['path'] = os.path.join(meta.nbm_path, m['path'])
 
         # so the path needs to be the full request path.
         if model['type'] == 'notebook':
             model['path'] = os.path.join(meta.nbm_path, model['path'])
-
-        return model
 
     def save(self, model, path):
         nbm, meta = self.get_nbm_from_path(path)

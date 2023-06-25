@@ -6,7 +6,7 @@ import dataclasses as dc
 import nbformat
 from IPython.utils import tz
 
-from .models import BaseModel
+from nbx_deux.models import BaseModel
 
 
 @dc.dataclass
