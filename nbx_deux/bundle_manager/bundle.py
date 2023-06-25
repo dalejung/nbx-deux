@@ -1,29 +1,54 @@
 import os
 import io
 from pathlib import Path
+import dataclasses as dc
 
 import nbformat
 from IPython.utils import tz
 
+from .models import BaseModel
+
+
+@dc.dataclass
+class NotebookBundleModel(BaseModel):
+    bundle_files: dict
+    is_bundle: bool = True
+
 
 class Bundle(object):
-    def __init__(self, path):
-        path = Path(path)
-        self.name = path.name
-        self.path = path
+    """
+    A bundle is a directory that acts like a file.
+    The directory will contain the actual file with the same name as
+    bundle_path.name and any other additional files.
+
+    bundle_path is only path external logic should see.
+
+    /root/frank.txt
+    /root/frank.txt/frank.txt
+    /root/frank.txt/metadata.json
+
+    In the above setup `/root/frank.txt` is the bundle_path.
+    `/root/frank/frank.txt` is the actual file.
+    """
+    def __init__(self, bundle_path):
+        bundle_path = Path(bundle_path)
+        self.name = bundle_path.name
+        self.bundle_path = bundle_path
 
     def __repr__(self):
         cname = self.__class__.__name__
-        name = self.name
-        path = self.path
-        return f"{cname}({name=}, {path=})"
+        bundle_path = self.bundle_path
+        return f"{cname}({bundle_path=})"
 
     @property
     def files(self):
+        """
+        files keys will be name relative to bundle_path
+        """
         try:
             files = [
-                str(p.relative_to(self.path))
-                for p in self.path.iterdir()
+                str(p.relative_to(self.bundle_path))
+                for p in self.bundle_path.iterdir()
                 if p.suffix != '.pyc'
             ]
         except StopIteration:
@@ -32,10 +57,12 @@ class Bundle(object):
 
 
 class NotebookBundle(Bundle):
-
+    """
+    Bundle that represents a Jupyter Notebook.
+    """
     @property
     def notebook_content(self):
-        filepath = os.path.join(self.path, self.name)
+        filepath = os.path.join(self.bundle_path, self.name)
         with io.open(filepath, 'r', encoding='utf-8') as f:
             try:
                 nb = nbformat.read(f, as_version=4)
@@ -57,7 +84,7 @@ class NotebookBundle(Bundle):
     def files_pack(self, file_content=True):
         files = {}
         for fn in self.files:
-            with open(os.path.join(self.path, fn), 'rb') as f:
+            with open(os.path.join(self.bundle_path, fn), 'rb') as f:
                 data = None
                 if file_content:
                     try:
@@ -70,27 +97,27 @@ class NotebookBundle(Bundle):
 
         return files
 
-    def get_model(self, content=True, file_content=True):
-        os_path = os.path.join(self.path, self.name)
+    def get_model(self, root_dir, content=True, file_content=True):
+        os_path = os.path.join(self.bundle_path, self.name)
         info = os.stat(os_path)
         last_modified = tz.utcfromtimestamp(info.st_mtime)
         created = tz.utcfromtimestamp(info.st_ctime)
 
-        # Create the notebook model.
-        model = {}
-        model['name'] = self.name
-        model['path'] = self.path
-        model['last_modified'] = last_modified
-        model['created'] = created
-        model['type'] = 'notebook'
-        model['is_bundle'] = True
-        model['content'] = None
-
+        notebook_content = None
         if content:
-            model['content'] = self.notebook_content
+            notebook_content = self.notebook_content
 
         files = self.files_pack(file_content)
-        model['__files'] = files
+        path = os.path.relpath(self.bundle_path, root_dir)
+        model = NotebookBundleModel(
+            name=self.name,
+            path=path,
+            last_modified=last_modified,
+            created=created,
+            type='notebook',
+            bundle_files=files,
+            content=notebook_content,
+        )
         return model
 
 
@@ -99,8 +126,9 @@ if __name__ == '__main__':
     from nbformat.v4 import new_notebook, writes
 
     with TempDir() as td:
-        nb_dir = td.joinpath('example.ipynb')
-        nb_dir.mkdir()
+        subdir = td.joinpath('subdir')
+        nb_dir = subdir.joinpath('example.ipynb')
+        nb_dir.mkdir(parents=True)
         file1 = nb_dir.joinpath('howdy.txt')
         with file1.open('w') as f:
             f.write('howdy')
@@ -118,7 +146,9 @@ if __name__ == '__main__':
         content = nb_bundle.notebook_content
         assert content == nb
 
-        model = nb_bundle.get_model()
-        assert model['is_bundle'] is True
-        assert model['content'] == nb
-        assert model['__files']['howdy.txt'] == 'howdy'
+        model = nb_bundle.get_model(td)
+        assert model.is_bundle is True
+        assert model.content == nb
+        assert model.bundle_files['howdy.txt'] == 'howdy'
+        assert model.name == 'example.ipynb'
+        assert model.path == 'subdir/example.ipynb'

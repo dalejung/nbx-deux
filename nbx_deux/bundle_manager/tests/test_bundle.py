@@ -9,8 +9,9 @@ from ..bundle import (
 
 def test_notebook_bundle():
     with TempDir() as td:
-        nb_dir = td.joinpath('example.ipynb')
-        nb_dir.mkdir()
+        subdir = td.joinpath('subdir')
+        nb_dir = subdir.joinpath('example.ipynb')
+        nb_dir.mkdir(parents=True)
         file1 = nb_dir.joinpath('howdy.txt')
         with file1.open('w') as f:
             f.write('howdy')
@@ -28,7 +29,9 @@ def test_notebook_bundle():
         content = nb_bundle.notebook_content
         assert content == nb
 
-        model = nb_bundle.get_model()
-        assert model['is_bundle'] is True
-        assert model['content'] == nb
-        assert model['__files']['howdy.txt'] == 'howdy'
+        model = nb_bundle.get_model(td)
+        assert model.is_bundle is True
+        assert model.content == nb
+        assert model.bundle_files['howdy.txt'] == 'howdy'
+        assert model.name == 'example.ipynb'
+        assert model.path == 'subdir/example.ipynb'
