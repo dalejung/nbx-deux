@@ -1,15 +1,11 @@
 import dataclasses as dc
 import os
+from pathlib import Path
 
-from traitlets import (
-    TraitError,
-    Unicode,
-    default,
-    validate,
-)
+
 from jupyter_server.services.contents.filemanager import FileContentsManager
 from jupyter_server.services.contents.manager import ContentsManager
-from nbx_deux.nbx_manager import NBXContentsManager
+from nbx_deux.nbx_manager import NBXContentsManager, ApiPath
 from nbx_deux.root_manager import RootContentsManager
 
 
@@ -25,26 +21,6 @@ class ManagerMeta:
 
 
 class MetaManager(NBXContentsManager):
-    root_dir = Unicode(config=True)
-
-    # TODO: move this out?
-    @default("root_dir")
-    def _default_root_dir(self):
-        try:
-            return self.parent.root_dir
-        except AttributeError:
-            return os.getcwd()
-
-    @validate("root_dir")
-    def _validate_root_dir(self, proposal):
-        value = proposal["value"]
-        if not os.path.isabs(value):
-            # If we receive a non-absolute path, make it absolute.
-            value = os.path.abspath(value)
-        if not os.path.isdir(value):
-            raise TraitError("%r is not a directory" % value)
-        return value
-
     def __init__(self, *args, managers=None, **kwargs):
         super().__init__(*args, **kwargs)
         if managers is None:
@@ -52,9 +28,11 @@ class MetaManager(NBXContentsManager):
         self.managers = managers
         self.root = RootContentsManager(meta_manager=self)
 
-        # default probably should not exist. 
-        # mostly here for testing / stubbing things out.
+        # TODO: The below are just testing.
         self.managers['default'] = FileContentsManager(root_dir=self.root_dir)
+        self.managers['home'] = FileContentsManager(
+            root_dir=str(Path("~").expanduser())
+        )
 
     def get_nbm_from_path(self, path) -> tuple[ContentsManager, ManagerMeta]:
         path = path.strip('/')
@@ -83,7 +61,7 @@ class MetaManager(NBXContentsManager):
         return nbm, meta
 
     # ContentManager API
-    def get(self, path, content=True, type=None, format=None):
+    def get(self, path: ApiPath, content=True, type=None, format=None):
         nbm, meta = self.get_nbm_from_path(path)
         model = nbm.get(meta.path, content=content, type=type, format=format)
 
@@ -110,46 +88,46 @@ class MetaManager(NBXContentsManager):
         if model['type'] == 'notebook':
             model['path'] = os.path.join(meta.nbm_path, model['path'])
 
-    def save(self, model, path):
+    def save(self, model, path: ApiPath):
         nbm, meta = self.get_nbm_from_path(path)
         return nbm.save(model, meta.path)
 
-    def delete_file(self, path):
+    def delete_file(self, path: ApiPath):
         nbm, meta = self.get_nbm_from_path(path)
         return nbm.delete_file(meta.path)
 
-    def rename_file(self, old_path, new_path):
+    def rename_file(self, old_path: ApiPath, new_path: ApiPath):
         nbm, meta = self.get_nbm_from_path(old_path)
-        _new_nbm, new_meta = self.get_nbm_from_path(old_path)
+        _new_nbm, new_meta = self.get_nbm_from_path(new_path)
         if nbm is not _new_nbm:
             raise Exception("Cannot rename across child content managers")
         return nbm.rename_file(meta.path, new_meta.path)
 
-    def file_exists(self, path) -> bool:
+    def file_exists(self, path: ApiPath) -> bool:
         nbm, meta = self.get_nbm_from_path(path)
         return nbm.file_exists(meta.path)
 
-    def dir_exists(self, path) -> bool:
+    def dir_exists(self, path: ApiPath) -> bool:
         nbm, meta = self.get_nbm_from_path(path)
         return nbm.dir_exists(meta.path)
 
-    def is_hidden(self, path) -> bool:
+    def is_hidden(self, path: ApiPath) -> bool:
         nbm, meta = self.get_nbm_from_path(path)
         return nbm.is_hidden(meta.path)
 
     # Checkpoints api
-    def create_checkpoint(self, path):
+    def create_checkpoint(self, path: ApiPath):
         nbm, meta = self.get_nbm_from_path(path)
         return nbm.create_checkpoint(meta.path)
 
-    def list_checkpoints(self, path):
+    def list_checkpoints(self, path: ApiPath):
         nbm, meta = self.get_nbm_from_path(path)
         return nbm.list_checkpoints(meta.path)
 
-    def restore_checkpoint(self, checkpoint_id, path):
+    def restore_checkpoint(self, checkpoint_id, path: ApiPath):
         nbm, meta = self.get_nbm_from_path(path)
         return nbm.restore_checkpoint(checkpoint_id, meta.path)
 
-    def delete_checkpoint(self, checkpoint_id, path):
+    def delete_checkpoint(self, checkpoint_id, path: ApiPath):
         nbm, meta = self.get_nbm_from_path(path)
         return nbm.delete_checkpoint(checkpoint_id, meta.path)

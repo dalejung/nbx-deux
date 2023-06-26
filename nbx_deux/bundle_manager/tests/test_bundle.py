@@ -3,11 +3,11 @@ from nbformat.v4 import new_notebook, writes
 
 
 from ..bundle import (
-    NotebookBundle,
+    NotebookBundlePath,
 )
 
 
-def test_notebook_bundle():
+def test_notebook_bundle_file():
     with TempDir() as td:
         subdir = td.joinpath('subdir')
         nb_dir = subdir.joinpath('example.ipynb')
@@ -22,7 +22,7 @@ def test_notebook_bundle():
         with nb_file.open('w') as f:
             f.write(writes(nb))
 
-        nb_bundle = NotebookBundle(nb_dir)
+        nb_bundle = NotebookBundlePath(nb_dir)
         files = nb_bundle.files
         assert 'howdy.txt' in files
 
@@ -35,3 +35,16 @@ def test_notebook_bundle():
         assert model.bundle_files['howdy.txt'] == 'howdy'
         assert model.name == 'example.ipynb'
         assert model.path == 'subdir/example.ipynb'
+
+        nb_bundle.rename("new_name.ipynb")
+        new_model = nb_bundle.get_model(td)
+
+        assert subdir.joinpath('new_name.ipynb').exists()
+        assert subdir.joinpath('new_name.ipynb/new_name.ipynb').exists()
+
+        assert new_model.name == 'new_name.ipynb'
+        assert new_model.path == 'subdir/new_name.ipynb'
+        assert new_model.bundle_files['howdy.txt'] == 'howdy'
+
+        new_model = nb_bundle.get_model(td, file_content=False)
+        assert new_model.bundle_files['howdy.txt'] is None

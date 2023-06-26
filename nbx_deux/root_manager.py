@@ -1,5 +1,5 @@
 from nbx_deux.models import DirectoryModel
-from nbx_deux.nbx_manager import NBXContentsManager
+from nbx_deux.nbx_manager import NBXContentsManager, ApiPath
 
 
 class RootContentsManager(NBXContentsManager):
@@ -23,7 +23,7 @@ class RootContentsManager(NBXContentsManager):
             dirs.append(model)
         return dirs
 
-    def get(self, path, content=True, type=None, format=None):
+    def get(self, path: ApiPath, content=True, type=None, format=None):
         return self.get_dir(path)
 
     def _get_dir_content_model(self, name):
@@ -34,13 +34,13 @@ class RootContentsManager(NBXContentsManager):
         model['format'] = 'json'
         return model
 
-    def file_exists(self, path):
+    def file_exists(self, path: ApiPath):
         return False
 
-    def dir_exists(self, path):
+    def dir_exists(self, path: ApiPath):
         return True
 
-    def get_dir(self, path='', content=True, **kwargs):
+    def get_dir(self, path: ApiPath, content=True, **kwargs):
         """ retrofit to use old list_dirs. No notebooks """
         dirs = self._list_nbm_dirs()
         model = DirectoryModel.transient(
@@ -49,5 +49,5 @@ class RootContentsManager(NBXContentsManager):
         )
         return model
 
-    def is_hidden(self, path):
+    def is_hidden(self, path: ApiPath):
         return False
