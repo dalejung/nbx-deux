@@ -2,10 +2,13 @@
 Mishmash of io logic stripped from jupyter code that isn't entangled with the
 Configurable and ContentsManager.
 """
+from datetime import datetime
 from contextlib import contextmanager
 import os.path
 from fnmatch import fnmatch
 from base64 import decodebytes, encodebytes
+import json
+
 from jupyter_server.services.contents.fileio import (
     path_to_intermediate,
     path_to_invalid,
@@ -14,8 +17,8 @@ from jupyter_server.services.contents.fileio import (
     _simple_writing,
 )
 import nbformat
-from nbformat import sign
-
+from nbformat import ValidationError, sign
+from nbformat import validate as validate_nb
 from tornado.web import HTTPError
 from jupyter_server import _tz as tz
 
@@ -197,3 +200,20 @@ def get_ospath_metadata(os_path):
         created = datetime(1970, 1, 1, 0, 0, tzinfo=tz.UTC)
 
     return {'size': size, 'last_modified': last_modified, 'created': created}
+
+
+def validate_notebook_model(model, validation_error=None):
+    """Add failed-validation message to model"""
+    try:
+        if validation_error is not None:
+            e = validation_error.get("ValidationError")
+            if isinstance(e, ValidationError):
+                raise e
+        else:
+            validate_nb(model["content"])
+    except ValidationError as e:
+        model["message"] = "Notebook validation failed: {}:\n{}".format(
+            str(e),
+            json.dumps(e.instance, indent=1, default=lambda obj: "<UNKNOWN>"),
+        )
+    return model

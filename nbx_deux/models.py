@@ -16,10 +16,12 @@ from jupyter_server.services.contents.filemanager import FileContentsManager
 
 from nbx_deux.fileio import (
     get_ospath_metadata,
+    mark_trusted_cells,
     ospath_is_writable,
     _read_file,
     _read_notebook,
     should_list,
+    validate_notebook_model,
 )
 
 RelPath = str
@@ -43,22 +45,6 @@ def default_model_get(path, content, root_dir):
     return model
 
 
-def fcm_base_model(os_path, root_dir=None):
-    """
-    Use the FileContentsManager to derive a base model.
-
-    Unsure if this will be only for testing.
-    """
-    if root_dir is None:
-        root_dir, path = os.path.split(os_path)
-    else:
-        path = os.path.relpath(os_path, root_dir)
-
-    fcm = FileContentsManager(root_dir=str(root_dir))
-    model = fcm._base_model(path)
-    return model
-
-
 @dc.dataclass(kw_only=True)
 class BaseModel:
     """
@@ -74,6 +60,7 @@ class BaseModel:
     mimetype: str | None = None
     size: int | None = None
     writable: bool | None = None
+    message: str | None = None
 
     @classmethod
     def transient(cls, path, **kwargs):
@@ -95,7 +82,7 @@ class BaseModel:
         )
 
     @classmethod
-    def from_filepath(cls, os_path, root_dir=None, asdict=False):
+    def from_filepath_dict(cls, os_path, root_dir=None) -> dict:
         f_metadata = get_ospath_metadata(os_path)
 
         if root_dir is None:
@@ -106,10 +93,7 @@ class BaseModel:
         name = os.path.split(path)[1]
         writable = ospath_is_writable(os_path)
 
-        if asdict:
-            cls = dict
-
-        model = cls(
+        model = dict(
             name=name,
             path=path,
             **f_metadata,
@@ -117,8 +101,20 @@ class BaseModel:
         )
         return model
 
+    @classmethod
+    def from_filepath(cls, os_path, root_dir=None, **kwargs):
+        model_dict = cls.from_filepath_dict(
+            os_path,
+            root_dir=root_dir,
+            **kwargs
+        )
+        return cls(**model_dict)
+
     def asdict(self):
-        return dc.asdict(self)
+        dct = dc.asdict(self)
+        if 'message' in dct and dct['message'] is None:
+            dct.pop('message')
+        return dct
 
     def __getitem__(self, key):
         return getattr(self, key)
@@ -141,9 +137,8 @@ class FileModel(BaseModel):
     type: str = dc.field(default='file', init=False)
 
     @classmethod
-    def from_filepath(cls, os_path, root_dir=None, content=True, format=None, asdict=False):
-        model = BaseModel.from_filepath(os_path, root_dir=root_dir, asdict=True)
-        model = cast(dict, model)
+    def from_filepath_dict(cls, os_path, root_dir=None, content=True, format=None):
+        model = BaseModel.from_filepath_dict(os_path, root_dir=root_dir)
         model["mimetype"] = mimetypes.guess_type(os_path)[0]
 
         if content:
@@ -160,10 +155,7 @@ class FileModel(BaseModel):
                 format=format,
             )
 
-        if asdict:
-            cls = dict
-
-        return cls(**model)
+        return model
 
 
 @dc.dataclass(kw_only=True)
@@ -172,16 +164,17 @@ class NotebookModel(BaseModel):
     format: str = dc.field(default='json', init=False)
 
     @classmethod
-    def from_filepath(cls, os_path, root_dir=None, content=True, format=None, asdict=False):
-        model = BaseModel.from_filepath(os_path, root_dir=root_dir, asdict=True)
-        model = cast(dict, model)
+    def from_filepath_dict(cls, os_path, root_dir=None, content=True, format=None):
+        model = BaseModel.from_filepath_dict(os_path, root_dir=root_dir)
+
         if content:
             validation_error: dict = {}
             nb = _read_notebook(os_path)
-
-            self.mark_trusted_cells(nb, path)
+            mark_trusted_cells(nb)
             model["content"] = nb
-            self.validate_notebook_model(model, validation_error)
+            validate_notebook_model(model, validation_error)
+
+        return model
 
 
 @dc.dataclass(kw_only=True)
@@ -222,18 +215,21 @@ class DirectoryModel(BaseModel):
         return contents
 
     @classmethod
-    def from_filepath(cls, os_path, root_dir=None, content=True,
-                      asdict=False, model_get=None):
+    def from_filepath_dict(
+        cls,
+        os_path,
+        root_dir=None,
+        content=True,
+        model_get=None
+    ):
         # Default Directory root_dir to os_path
         if root_dir is None:
             root_dir = os_path
 
-        model = BaseModel.from_filepath(
+        model = BaseModel.from_filepath_dict(
             os_path,
             root_dir=root_dir,
-            asdict=True
         )
-        model = cast(dict, model)
         model["size"] = None
 
         if content:
@@ -246,14 +242,22 @@ class DirectoryModel(BaseModel):
             )
             model['content'] = content
 
-        if asdict:
-            cls = dict
-
-        return cls(**model)
+        return model
 
 
 if __name__ == '__main__':
     from pathlib import Path
     filepath = Path(__file__)
-    fcm_model = fcm_base_model(filepath, root_dir=filepath.parents[2])
-    model = BaseModel.from_filepath(filepath, root_dir=filepath.parents[2])
+    root_dir = filepath.parents[2]
+    fcm = FileContentsManager(root_dir=str(root_dir))
+    path = os.path.relpath(filepath, root_dir)
+
+    fcm_model = fcm.get(path)
+
+    model = FileModel.from_filepath(filepath, root_dir=root_dir)
+    assert model.asdict() == fcm_model
+
+
+    fcm_model = fcm.get(path, content=False)
+    model = FileModel.from_filepath(filepath, root_dir=root_dir, content=False)
+    assert model.asdict() == fcm_model
