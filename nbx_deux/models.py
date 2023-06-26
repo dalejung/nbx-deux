@@ -9,7 +9,7 @@ import os
 import dataclasses as dc
 from datetime import datetime
 import mimetypes
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 import stat
 from functools import partial
 from jupyter_core.paths import is_file_hidden
@@ -109,6 +109,11 @@ class BaseModel:
     size: int | None = None
     writable: bool | None = None
     message: str | None = None
+    default_format: ClassVar[str | None] = None
+
+    def __post_init__(self):
+        if self.content is not None and self.format is None:
+            self.format = self.default_format
 
     @classmethod
     def transient(cls, path, **kwargs):
@@ -225,6 +230,7 @@ class FileModel(BaseModel):
 @dc.dataclass(kw_only=True)
 class NotebookModel(BaseModel):
     type: str = dc.field(default='notebook', init=False)
+    default_format: ClassVar = 'json'
 
     @classmethod
     def from_filepath_dict(cls, os_path, root_dir=None, content=True, format=None):
@@ -245,6 +251,7 @@ class NotebookModel(BaseModel):
 @dc.dataclass(kw_only=True)
 class DirectoryModel(BaseModel):
     type: str = dc.field(default='directory', init=False)
+    default_format: ClassVar = 'json'
 
     def contents_dict(self):
         if not self.content:

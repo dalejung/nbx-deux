@@ -1,6 +1,7 @@
 import os.path
 from pathlib import Path
 import pytest
+from datetime import datetime
 
 from nbformat import v4
 from jupyter_server.services.contents.filemanager import FileContentsManager
@@ -76,6 +77,23 @@ def test_directory_model():
     for left, right in zip(model_content, fcm_content):
         assert left == right
 
+    # test defautl format
+    model = DirectoryModel(
+        name='name', path='path', last_modified=datetime.now(), created=datetime.now(), content=1
+    )
+    assert model.format == 'json'
+
+    tmod = DirectoryModel.transient(
+        path='howdy',
+    )
+    assert tmod.format is None
+
+    tmod = DirectoryModel.transient(
+        path='howdy',
+        content='howdy content',
+    )
+    assert tmod.format == 'json'
+
 
 def test_notebook_model():
     with TempDir() as td:
@@ -91,3 +109,9 @@ def test_notebook_model():
         model = NotebookModel.from_filepath(nb_file, root_dir=td)
         assert model.type == 'notebook'
         assert model.asdict() == fcm_model
+
+    # test defautl format
+    model = NotebookModel(
+        name='name', path='path', last_modified=datetime.now(), created=datetime.now(), content=1
+    )
+    assert model.format == 'json'

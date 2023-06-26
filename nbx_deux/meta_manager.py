@@ -5,6 +5,7 @@ from pathlib import Path
 
 from jupyter_server.services.contents.filemanager import FileContentsManager
 from jupyter_server.services.contents.manager import ContentsManager
+from nbx_deux.bundle_manager.bundle_nbmanager import BundleContentsManager
 from nbx_deux.nbx_manager import NBXContentsManager, ApiPath
 from nbx_deux.root_manager import RootContentsManager
 
