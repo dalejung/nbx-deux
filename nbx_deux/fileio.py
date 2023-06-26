@@ -8,6 +8,7 @@ import os.path
 from fnmatch import fnmatch
 from base64 import decodebytes, encodebytes
 import json
+from typing import cast
 
 from jupyter_server.services.contents.fileio import (
     path_to_intermediate,
@@ -16,6 +17,7 @@ from jupyter_server.services.contents.fileio import (
     atomic_writing,
     _simple_writing,
 )
+from jupyter_server.services.contents.filemanager import FileContentsManager
 import nbformat
 from nbformat import ValidationError, sign
 from nbformat import validate as validate_nb
@@ -39,6 +41,18 @@ def mark_trusted_cells(nb):
     notary = sign.NotebookNotary()
     trusted = notary.check_signature(nb)
     notary.mark_cells(nb, trusted)
+
+
+def get_hide_globs() -> list:
+    """
+    Seems like good way to get hide_globs defaults
+    """
+    fcm = FileContentsManager()
+    hide_globs = cast(list, fcm.hide_globs)
+    return hide_globs
+
+
+FCM_HIDE_GLOBS = get_hide_globs()
 
 
 def should_list(name, hide_globs):

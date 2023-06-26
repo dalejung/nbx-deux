@@ -3,6 +3,7 @@ Paths:
     os_path: full absolute file path
     path: relative path to root_dir (url path)
 """
+import copy
 import errno
 import os
 import dataclasses as dc
@@ -13,8 +14,10 @@ import stat
 from functools import partial
 from jupyter_core.paths import is_file_hidden
 from jupyter_server.services.contents.filemanager import FileContentsManager
+from jupyter_server.utils import ApiPath, to_os_path
 
 from nbx_deux.fileio import (
+    FCM_HIDE_GLOBS,
     get_ospath_metadata,
     mark_trusted_cells,
     ospath_is_writable,
@@ -27,8 +30,52 @@ from nbx_deux.fileio import (
 RelPath = str
 
 
-def default_model_get(path, content, root_dir):
-    os_path = os.path.join(root_dir, path)
+def model_to_dict(obj) -> dict:
+    """
+    Modified dc.asdict that allows Models to control how they turn into dicts.
+    """
+    if not isinstance(obj, BaseModel):
+        raise Exception(f"model_to_dict only works on BaseModel {type(obj)}")
+    dct = _model_to_dict(obj)
+    dct = cast(dict, dct)
+    return dct
+
+
+def _model_to_dict(obj):
+    if isinstance(obj, BaseModel):
+        results = {}
+        for k, v in obj.asdict(shallow=True).items():
+            results[k] = _model_to_dict(v)
+        return results
+    elif dc._is_dataclass_instance(obj):
+        result = []
+        for f in dc.fields(obj):
+            value = _model_to_dict(getattr(obj, f.name))
+            result.append((f.name, value))
+        return dict(result)
+    elif isinstance(obj, tuple) and hasattr(obj, '_fields'):
+        return type(obj)(*[_model_to_dict(v) for v in obj])
+    elif isinstance(obj, (list, tuple)):
+        # Assume we can create an object of this type by passing in a
+        # generator (which is not true for namedtuples, handled
+        # above).
+        return type(obj)(_model_to_dict(v) for v in obj)
+    elif isinstance(obj, dict):
+        return type(obj)((_model_to_dict(k),
+                          _model_to_dict(v))
+                         for k, v in obj.items())
+    else:
+        return copy.deepcopy(obj)
+
+
+def default_model_get(path: ApiPath, content, root_dir):
+    """
+    Normally for directory type listings the ContentsManager.get is called for each subitem.
+    The logic for determining the models can be different per CM. The Models here are meant to be
+    divorced from CM logic directly so we have this default simple model generator to mimic
+    FileContentsManager.get
+    """
+    os_path = to_os_path(path, root_dir)
     if os.path.isfile(os_path) and os_path.endswith('.ipynb'):
         model = NotebookModel.from_filepath(os_path, content=content)
     elif os.path.isdir(os_path):
@@ -38,9 +85,10 @@ def default_model_get(path, content, root_dir):
             content=content
         )
     else:
-        model = BaseModel.from_filepath(
+        model = FileModel.from_filepath(
             os_path,
-            root_dir=root_dir
+            root_dir=root_dir,
+            content=content,
         )
     return model
 
@@ -90,6 +138,9 @@ class BaseModel:
             root_dir, path = os.path.split(os_path)
         else:
             path = os.path.relpath(os_path, root_dir)
+            if path == '.':
+                path = ''
+
         name = os.path.split(path)[1]
         writable = ospath_is_writable(os_path)
 
@@ -110,11 +161,21 @@ class BaseModel:
         )
         return cls(**model_dict)
 
-    def asdict(self):
-        dct = dc.asdict(self)
+    def asdict(self, shallow=False) -> dict:
+        if shallow is False:
+            return model_to_dict(self)
+
+        dct = self._shallow_asdict()
         if 'message' in dct and dct['message'] is None:
             dct.pop('message')
         return dct
+
+    def _shallow_asdict(self):
+        result = {}
+        for f in dc.fields(self):
+            value = getattr(self, f.name)
+            result[f.name] = value
+        return result
 
     def __getitem__(self, key):
         return getattr(self, key)
@@ -138,6 +199,9 @@ class FileModel(BaseModel):
 
     @classmethod
     def from_filepath_dict(cls, os_path, root_dir=None, content=True, format=None):
+        if not os.path.isfile(os_path):
+            raise Exception(f"FileModel called on non-file path {os_path=}")
+
         model = BaseModel.from_filepath_dict(os_path, root_dir=root_dir)
         model["mimetype"] = mimetypes.guess_type(os_path)[0]
 
@@ -161,7 +225,6 @@ class FileModel(BaseModel):
 @dc.dataclass(kw_only=True)
 class NotebookModel(BaseModel):
     type: str = dc.field(default='notebook', init=False)
-    format: str = dc.field(default='json', init=False)
 
     @classmethod
     def from_filepath_dict(cls, os_path, root_dir=None, content=True, format=None):
@@ -172,6 +235,8 @@ class NotebookModel(BaseModel):
             nb = _read_notebook(os_path)
             mark_trusted_cells(nb)
             model["content"] = nb
+            # Copying jupyter idiom of only setting format when content is requested
+            model["format"] = "json"
             validate_notebook_model(model, validation_error)
 
         return model
@@ -180,10 +245,17 @@ class NotebookModel(BaseModel):
 @dc.dataclass(kw_only=True)
 class DirectoryModel(BaseModel):
     type: str = dc.field(default='directory', init=False)
-    format: str = dc.field(default='json', init=False)
 
     @classmethod
-    def get_dir_content(cls, os_dir, path, *, model_get, allow_hidden=True, hide_globs=[]):
+    def get_dir_content(
+        cls,
+        os_dir,
+        path,
+        *,
+        model_get,
+        allow_hidden=False,
+        hide_globs=FCM_HIDE_GLOBS
+    ):
         contents = []
         for name in os.listdir(os_dir):
             try:
@@ -246,22 +318,24 @@ class DirectoryModel(BaseModel):
                 model_get=model_get
             )
             model['content'] = content
+            # Copying jupyter idiom of only setting format when content is requested
+            model["format"] = "json"
 
         return model
 
 
 if __name__ == '__main__':
-    from pathlib import Path
-    filepath = Path(__file__)
-    root_dir = filepath.parents[2]
-    fcm = FileContentsManager(root_dir=str(root_dir))
-    path = os.path.relpath(filepath, root_dir)
+    from nbx_deux.testing import TempDir
+    from nbformat import v4
+    with TempDir() as td:
+        nb_file = td.joinpath('example.ipynb')
+        nb = v4.new_notebook()
+        nb['metadata']['howdy'] = 'hi'
+        with nb_file.open('w') as f:
+            f.write(v4.writes(nb))
 
-    fcm_model = fcm.get(path)
+        fcm = FileContentsManager(root_dir=str(td))
+        fcm_model = fcm.get("example.ipynb")
 
-    model = FileModel.from_filepath(filepath, root_dir=root_dir)
-    assert model.asdict() == fcm_model
-
-    fcm_model = fcm.get(path, content=False)
-    model = FileModel.from_filepath(filepath, root_dir=root_dir, content=False)
-    assert model.asdict() == fcm_model
+        model = NotebookModel.from_filepath(nb_file, root_dir=td)
+        assert model.asdict() == fcm_model
