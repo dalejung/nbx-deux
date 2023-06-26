@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 
-from traitlets import Dict, Unicode
+from traitlets import Dict, Unicode, List
 from jupyter_server.services.contents.filemanager import FileContentsManager
 from jupyter_server.services.contents.manager import ContentsManager
 from nbx_deux.bundle_manager.bundle_nbmanager import BundleContentsManager
@@ -29,6 +29,9 @@ class MetaManager(NBXContentsManager):
         help="BundleNBManager. Dict of alias, path"
     )
     trash_dir = Unicode(config=True)
+    submanager_post_save_hooks = List(
+        config=True,
+    )
 
     def __init__(self, *args, managers=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -39,8 +42,10 @@ class MetaManager(NBXContentsManager):
 
     def init_managers(self):
         for alias, path in self.bundle_dirs.items():
-            print(alias, path)
             fb = BundleContentsManager(root_dir=str(path), trash_dir=self.trash_dir)
+            for hook in self.submanager_post_save_hooks:
+                fb.register_post_save_hook(hook)
+                fb.fm.register_post_save_hook(hook)
             self.managers[alias] = fb
 
         self.root = RootContentsManager(meta_manager=self)

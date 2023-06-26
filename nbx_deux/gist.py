@@ -6,7 +6,7 @@ from .bundle_manager.bundle import BundleModel
 _missing = object()
 
 
-def model_to_files(model: BundleModel):
+def model_to_files(model: BundleModel | dict):
     """
     Converts a IPython notebook model to a github.Gist `files` dict.
     Parameters

@@ -93,6 +93,7 @@ class BundleContentsManager(FileManagerMixin, NBXContentsManager):
             bundle.save(model)
             # refresh
             model = self.get(path, content=False)
+            self.run_post_save_hooks(model=model, os_path=os_path)
             return model.asdict()
 
         return self.fm.save(model, path)

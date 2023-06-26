@@ -204,6 +204,10 @@ class BundlePath:
             bundle_file_content = self.get_bundle_file_content()
 
         model = BaseModel.from_filepath_dict(os_path, root_dir)
+        # This gets the deets for the actual bundle_file
+        # However we dont want the path to point to the actual bundle_file
+        path = os.path.relpath(self.bundle_path, root_dir)
+        model['path'] = path
         assert model['name'] == self.name
 
         files = self.files_pack(file_content)
@@ -263,11 +267,6 @@ class NotebookBundlePath(BundlePath):
     def save_bundle_file(self, model: NotebookModel):
         nb = cast(nbformat.NotebookNode, nbformat.from_dict(model['content']))
         check_and_sign(nb)
-
-        # # TODO: I don't remember why I did this...
-        # if 'name' in nb.metadata:
-        #     nb.metadata['name'] = u''
-
         _save_notebook(self.bundle_file, nb)
 
     def get_bundle_file_content(self):
