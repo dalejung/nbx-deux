@@ -13,7 +13,6 @@ In the above setup `/root/frank.txt` is the bundle_path.
 `/root/frank/frank.txt` is the actual file.
 """
 import os
-import io
 from pathlib import Path
 import dataclasses as dc
 from typing import cast
@@ -22,6 +21,10 @@ import nbformat
 from IPython.utils import tz
 
 from nbx_deux.models import BaseModel
+from nbx_deux.fileio import (
+    _read_notebook,
+    _save_notebook,
+)
 
 
 @dc.dataclass(kw_only=True)
@@ -213,16 +216,6 @@ class NotebookBundlePath(BundlePath):
     """
     bundle_model_class = NotebookBundleModel
 
-    @property
-    def notebook_content(self):
-        filepath = os.path.join(self.bundle_path, self.name)
-        with io.open(filepath, 'r', encoding='utf-8') as f:
-            try:
-                nb = nbformat.read(f, as_version=4)
-            except Exception:
-                nb = None
-            return nb
-
     @classmethod
     def valid_path(cls, os_path):
         # basically a bundle with ipynb
@@ -234,20 +227,14 @@ class NotebookBundlePath(BundlePath):
     def save_bundle_file(self, model):
         nb = cast(nbformat.NotebookNode, nbformat.from_dict(model['content']))
 
+        # TODO: I don't remember why I did this...
         if 'name' in nb.metadata:
             nb.metadata['name'] = u''
-        try:
-            with io.open(self.bundle_file, 'w', encoding='utf-8') as f:
-                nbformat.write(nb, f, version=nbformat.NO_CONVERT)
-        except Exception as e:
-            raise Exception((
-                'Unexpected error while autosaving notebook: '
-                f'{self.bundle_file} {e}'
-            ))
+
+        _save_notebook(self.bundle_file, nb)
 
     def get_bundle_file_content(self):
-        with io.open(self.bundle_file, 'r', encoding='utf-8') as f:
-            nb = nbformat.read(f, as_version=4)
+        nb = _read_notebook(self.bundle_file)
         return nb
 
 
@@ -273,7 +260,7 @@ if __name__ == '__main__':
         files = nb_bundle.files
         assert 'howdy.txt' in files
 
-        content = nb_bundle.notebook_content
+        content = nb_bundle.get_bundle_file_content()
         assert content == nb
 
         model = nb_bundle.get_model(td)

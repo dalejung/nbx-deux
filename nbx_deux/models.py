@@ -3,15 +3,44 @@ Paths:
     os_path: full absolute file path
     path: relative path to root_dir (url path)
 """
+import errno
 import os
 import dataclasses as dc
 from datetime import datetime
-from typing import Any
-
-from jupyter_server import _tz as tz
+import mimetypes
+from typing import Any, cast
+import stat
+from functools import partial
+from jupyter_core.paths import is_file_hidden
 from jupyter_server.services.contents.filemanager import FileContentsManager
 
+from nbx_deux.fileio import (
+    get_ospath_metadata,
+    ospath_is_writable,
+    _read_file,
+    _read_notebook,
+    should_list,
+)
+
 RelPath = str
+
+
+def default_model_get(path, content, root_dir):
+    os_path = os.path.join(root_dir, path)
+    if os.path.isfile(os_path) and os_path.endswith('.ipynb'):
+        model = NotebookModel.from_filepath(os_path, content=content)
+    elif os.path.isdir(os_path):
+        model = DirectoryModel.from_filepath(
+            os_path,
+            root_dir=root_dir,
+            content=content
+        )
+    else:
+        model = BaseModel.from_filepath(
+            os_path,
+            root_dir=root_dir
+        )
+    return model
 
 
 def fcm_base_model(os_path, root_dir=None):
@@ -28,40 +57,6 @@ def fcm_base_model(os_path, root_dir=None):
     fcm = FileContentsManager(root_dir=str(root_dir))
     model = fcm._base_model(path)
     return model
-
-
-def ospath_is_writable(os_path):
-    try:
-        return os.access(os_path, os.W_OK)
-    except OSError:
-        return False
-
-
-def get_ospath_metadata(os_path):
-    info = os.lstat(os_path)
-
-    size = None
-    try:
-        # size of file
-        size = info.st_size
-    except (ValueError, OSError):
-        pass
-
-    try:
-        last_modified = tz.utcfromtimestamp(info.st_mtime)
-    except (ValueError, OSError):
-        # Files can rarely have an invalid timestamp
-        # https://github.com/jupyter/notebook/issues/2539
-        # https://github.com/jupyter/notebook/issues/2757
-        # Use the Unix epoch as a fallback so we don't crash.
-        last_modified = datetime(1970, 1, 1, 0, 0, tzinfo=tz.UTC)
-
-    try:
-        created = tz.utcfromtimestamp(info.st_ctime)
-    except (ValueError, OSError):  # See above
-        created = datetime(1970, 1, 1, 0, 0, tzinfo=tz.UTC)
-
-    return {'size': size, 'last_modified': last_modified, 'created': created}
 
 
 @dc.dataclass(kw_only=True)
@@ -100,15 +95,20 @@ class BaseModel:
         )
 
     @classmethod
-    def from_filepath(cls, os_path, root_dir=None):
+    def from_filepath(cls, os_path, root_dir=None, asdict=False):
         f_metadata = get_ospath_metadata(os_path)
 
         if root_dir is None:
+            # default to root dir being the parent.
             root_dir, path = os.path.split(os_path)
         else:
             path = os.path.relpath(os_path, root_dir)
         name = os.path.split(path)[1]
         writable = ospath_is_writable(os_path)
+
+        if asdict:
+            cls = dict
+
         model = cls(
             name=name,
             path=path,
@@ -137,9 +137,119 @@ class BaseModel:
 
 
 @dc.dataclass(kw_only=True)
+class FileModel(BaseModel):
+    type: str = dc.field(default='file', init=False)
+
+    @classmethod
+    def from_filepath(cls, os_path, root_dir=None, content=True, format=None, asdict=False):
+        model = BaseModel.from_filepath(os_path, root_dir=root_dir, asdict=True)
+        model = cast(dict, model)
+        model["mimetype"] = mimetypes.guess_type(os_path)[0]
+
+        if content:
+            content, format = _read_file(os_path, format)
+            if model["mimetype"] is None:
+                default_mime = {
+                    "text": "text/plain",
+                    "base64": "application/octet-stream",
+                }[format]
+                model["mimetype"] = default_mime
+
+            model.update(
+                content=content,
+                format=format,
+            )
+
+        if asdict:
+            cls = dict
+
+        return cls(**model)
+
+
+@dc.dataclass(kw_only=True)
+class NotebookModel(BaseModel):
+    type: str = dc.field(default='notebook', init=False)
+    format: str = dc.field(default='json', init=False)
+
+    @classmethod
+    def from_filepath(cls, os_path, root_dir=None, content=True, format=None, asdict=False):
+        model = BaseModel.from_filepath(os_path, root_dir=root_dir, asdict=True)
+        model = cast(dict, model)
+        if content:
+            validation_error: dict = {}
+            nb = _read_notebook(os_path)
+
+            self.mark_trusted_cells(nb, path)
+            model["content"] = nb
+            self.validate_notebook_model(model, validation_error)
+
+
+@dc.dataclass(kw_only=True)
 class DirectoryModel(BaseModel):
     type: str = dc.field(default='directory', init=False)
     format: str = dc.field(default='json', init=False)
+
+    @classmethod
+    def get_dir_content(cls, os_dir, path, *, model_get, allow_hidden=True, hide_globs=[]):
+        contents = []
+        for name in os.listdir(os_dir):
+            try:
+                os_path = os.path.join(os_dir, name)
+            except UnicodeDecodeError as e:
+                continue
+
+            try:
+                st = os.lstat(os_path)
+            except OSError as e:
+                continue
+
+            if (
+                not stat.S_ISLNK(st.st_mode)
+                and not stat.S_ISREG(st.st_mode)
+                and not stat.S_ISDIR(st.st_mode)
+            ):
+                continue
+
+            try:
+                if should_list(name, hide_globs) and (
+                    allow_hidden or not is_file_hidden(os_path, stat_res=st)
+                ):
+                    contents.append(model_get(path=f"{path}/{name}", content=False))
+            except OSError as e:
+                # ELOOP: recursive symlink, also don't show failure due to permissions
+                if e.errno not in [errno.ELOOP, errno.EACCES]:
+                    pass
+        return contents
+
+    @classmethod
+    def from_filepath(cls, os_path, root_dir=None, content=True,
+                      asdict=False, model_get=None):
+        # Default Directory root_dir to os_path
+        if root_dir is None:
+            root_dir = os_path
+
+        model = BaseModel.from_filepath(
+            os_path,
+            root_dir=root_dir,
+            asdict=True
+        )
+        model = cast(dict, model)
+        model["size"] = None
+
+        if content:
+            if model_get is None:
+                model_get = partial(default_model_get, root_dir=root_dir)
+            content = cls.get_dir_content(
+                os_path,
+                model['path'],
+                model_get=model_get
+            )
+            model['content'] = content
+
+        if asdict:
+            cls = dict
+
+        return cls(**model)
 
 
 if __name__ == '__main__':

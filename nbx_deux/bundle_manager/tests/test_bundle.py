@@ -26,7 +26,7 @@ def test_notebook_bundle_file():
         files = nb_bundle.files
         assert 'howdy.txt' in files
 
-        content = nb_bundle.notebook_content
+        content = nb_bundle.get_bundle_file_content()
         assert content == nb
 
         model = nb_bundle.get_model(td)
