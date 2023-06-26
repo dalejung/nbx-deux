@@ -13,7 +13,7 @@ from jupyter_server.services.contents.filemanager import FileContentsManager
 from nbx_deux.models import DirectoryModel
 
 from ..nbx_manager import NBXContentsManager, ApiPath
-from .bundle import NotebookBundlePath, BundlePath
+from .bundle import NotebookBundlePath, BundlePath, bundle_get_path_item
 
 
 class BundleContentsManager(FileManagerMixin, NBXContentsManager):
@@ -22,23 +22,6 @@ class BundleContentsManager(FileManagerMixin, NBXContentsManager):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fm = FileContentsManager(root_dir=self.root_dir)
-        self.bundle_class = NotebookBundlePath
-
-    def _fcm_file_type(self, path, type):
-        """
-        Just replicating FCM logic and validation for path / type
-        """
-        os_path = self._get_os_path(path=path)
-        if os.path.isdir(os_path):
-            if type not in (None, "directory"):
-                raise Exception(f"{path} is a directory not a {type}")
-            return 'directory'
-        elif type == "notebook" or (type is None and path.endswith(".ipynb")):
-            return 'notebook'
-        else:
-            if type == "directory":
-                raise Exception(f"{path} is not a directory")
-            return 'file'
 
     def is_bundle(self, path: ApiPath | Path):
         if isinstance(path, Path) and path.is_absolute():
@@ -47,30 +30,54 @@ class BundleContentsManager(FileManagerMixin, NBXContentsManager):
             os_path = self._get_os_path(path=path)
         return BundlePath.valid_path(os_path)
 
-    def get_bundle(self, path: ApiPath):
+    def get_bundle(self, path: ApiPath, type=None):
         os_path = self._get_os_path(path=path)
-        if self.bundle_class.valid_path(os_path):
-            bundle = self.bundle_class(os_path)
+        if type == "notebook" or (type is None and path.endswith(".ipynb")):
+            bundle = NotebookBundlePath(os_path)
         else:
             bundle = BundlePath(os_path)
         return bundle
 
     def get(self, path, content=True, type=None, format=None):
-        """
-        TODO: I imagine I could create a multi step process where:
-            1. List all directory content where files and bundle are same just with an is_bundle
-            2. Run the same fcm_type logic on paths
-            3. Dispatch to fcm / bundle depending on is_bundle flag.
-
-        The idea being that on some level bundle files should act transparently as single files.
-        """
         os_path = self._get_os_path(path=path)
+        path_item = bundle_get_path_item(os_path)
         # TODO: Someday we might allow accessing other files in bundle. But that's later.
         # This will also handle any non bundle notebooks
-        if os.path.isfile(os_path):
-            return self.fm.get(path, content=content, type=type, format=format)
+        if path_item.type == 'file':
+            if type == "directory":
+                raise Exception(f"{path} is not a directory")
+            if not path_item.is_bundle:
+                # regular files use fm
+                return self.fm.get(path, content=content, type=type, format=format)
+            else:
+                return self.bundle_get(path, content=content, type=type, format=format)
 
-        return self.bundle_get(path, content=content, type=type, format=format)
+        # non content directories can just use fcm.
+        if path_item.type == 'directory':
+            if type not in (None, "directory"):
+                raise Exception(f"{path} is a directory not a {type}")
+
+            if content is not True:
+                return self.fm.get(path, content=False)
+            else:
+                return self.get_dir(path, content)
+
+        raise Exception(f"Unable to handle {path}")
+
+    def get_dir(self, path, content=True):
+        os_path = self._get_os_path(path=path)
+        model = DirectoryModel.from_filepath(
+            os_path,
+            self.root_dir,
+            content=content,
+            model_get=self.get,  # use out CM.get logic
+        )
+        return model
+
+    def bundle_get(self, path, content=True, type=None, format=None):
+        bundle = self.get_bundle(path, type=type)
+        model = bundle.get_model(self.root_dir, content=content)
+        return model
 
     def save(self, model, path):
         if self.is_bundle(path):
@@ -113,35 +120,6 @@ class BundleContentsManager(FileManagerMixin, NBXContentsManager):
 
     def is_hidden(self, path):
         return self.fm.is_hidden(path)
-
-    def _dir_model(self, path):
-        model = {}
-        model['name'] = path.rsplit('/', 1)[-1]
-        model['path'] = path
-        model['type'] = 'directory'
-        return model
-
-    def bundle_get(self, path, content=True, type=None, format=None):
-        fcm_type = self._fcm_file_type(path, type)
-
-        if self.is_bundle(path):
-            bundle = self.get_bundle(path)
-            model = bundle.get_model(self.root_dir, content=content)
-            return model
-
-        # non content directories can just use fcm.
-        # NOTE: We first have to check that the directory is not a bundle.
-        if fcm_type == 'directory' and content is not True:
-            return self.fm.get(path, content=False)
-
-        os_path = self._get_os_path(path=path)
-        model = DirectoryModel.from_filepath(
-            os_path,
-            self.root_dir,
-            content=content,
-            model_get=self.get,  # use out CM.get logic
-        )
-        return model
 
     def delete_bundle(self, path):
         if not self.is_bundle(path):

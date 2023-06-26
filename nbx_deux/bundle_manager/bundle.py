@@ -15,7 +15,7 @@ In the above setup `/root/frank.txt` is the bundle_path.
 import os
 from pathlib import Path
 import dataclasses as dc
-from typing import cast
+from typing import Literal, cast
 
 import nbformat
 from IPython.utils import tz
@@ -25,6 +25,41 @@ from nbx_deux.fileio import (
     _read_notebook,
     _save_notebook,
 )
+
+
+@dc.dataclass(frozen=True, kw_only=True)
+class PathItem:
+    path: Path
+    type: Literal['file', 'directory']
+    is_bundle: bool = False
+
+    @property
+    def is_regular_file(self):
+        return self.type == 'file' and not self.is_bundle
+
+
+def bundle_get_path_item(os_path):
+    os_path = Path(os_path)
+    type = 'file'
+    is_bundle = False
+
+    if os_path.is_dir():
+        if BundlePath.valid_path(os_path):
+            type = 'file'
+            is_bundle = True
+        else:
+            type = 'directory'
+    item = PathItem(path=os_path, type=type, is_bundle=is_bundle)
+    return item
+
+
+def bundle_list_dir(os_path):
+    os_path = Path(os_path)
+    content = []
+    for p in os_path.iterdir():
+        item = bundle_get_path_item(p)
+        content.append(item)
+    return content
 
 
 @dc.dataclass(kw_only=True)
@@ -270,3 +305,5 @@ if __name__ == '__main__':
         assert model.bundle_files['howdy.txt'] == 'howdy'
         assert model.name == 'example.ipynb'
         assert model.path == 'subdir/example.ipynb'
+
+        items = bundle_list_dir(subdir)
