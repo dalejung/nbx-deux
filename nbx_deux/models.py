@@ -15,6 +15,7 @@ from functools import partial
 from jupyter_core.paths import is_file_hidden
 from jupyter_server.services.contents.filemanager import FileContentsManager
 from jupyter_server.utils import ApiPath, to_os_path
+from nbformat import NotebookNode
 
 from nbx_deux.fileio import (
     FCM_HIDE_GLOBS,
@@ -197,6 +198,9 @@ class BaseModel:
     def keys(self):
         return self.asdict().keys()
 
+    def get(self, key, default=None):
+        return getattr(self, key, default)
+
 
 @dc.dataclass(kw_only=True)
 class FileModel(BaseModel):
@@ -233,6 +237,14 @@ class NotebookModel(BaseModel):
     default_format: ClassVar = 'json'
 
     @classmethod
+    def from_nbnode(cls, nb: NotebookNode, **kwargs):
+        now = datetime.now()
+
+        created = kwargs.pop('created', now)
+        last_modified = kwargs.pop('last_modified', now)
+        return cls(content=nb, created=created, last_modified=last_modified, **kwargs)
+
+    @classmethod
     def from_filepath_dict(cls, os_path, root_dir=None, content=True, format=None):
         model = BaseModel.from_filepath_dict(os_path, root_dir=root_dir)
 
@@ -241,8 +253,6 @@ class NotebookModel(BaseModel):
             nb = _read_notebook(os_path)
             mark_trusted_cells(nb)
             model["content"] = nb
-            # Copying jupyter idiom of only setting format when content is requested
-            model["format"] = "json"
             validate_notebook_model(model, validation_error)
 
         return model

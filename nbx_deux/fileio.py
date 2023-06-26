@@ -25,6 +25,9 @@ from tornado.web import HTTPError
 from jupyter_server import _tz as tz
 
 
+CM_NOTARY = cast(sign.NotebookNotary, FileContentsManager().notary)
+
+
 def mark_trusted_cells(nb):
     """Mark cells as trusted if the notebook signature matches.
 
@@ -38,7 +41,7 @@ def mark_trusted_cells(nb):
         The notebook's path (for logging)
     """
 
-    notary = sign.NotebookNotary()
+    notary = CM_NOTARY
     trusted = notary.check_signature(nb)
     notary.mark_cells(nb, trusted)
 
@@ -231,3 +234,20 @@ def validate_notebook_model(model, validation_error=None):
             json.dumps(e.instance, indent=1, default=lambda obj: "<UNKNOWN>"),
         )
     return model
+
+
+def check_and_sign(nb):
+    """Check for trusted cells, and sign the notebook.
+
+    Called as a part of saving notebooks.
+
+    Parameters
+    ----------
+    nb : dict
+        The notebook dict
+    path : str
+        The notebook's path (for logging)
+    """
+    notary = CM_NOTARY
+    if notary.check_cells(nb):
+        notary.sign(nb)

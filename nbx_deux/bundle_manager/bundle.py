@@ -20,10 +20,12 @@ from typing import ClassVar, Literal, cast
 import nbformat
 from IPython.utils import tz
 
-from nbx_deux.models import BaseModel
+from nbx_deux.models import BaseModel, NotebookModel
 from nbx_deux.fileio import (
     _read_notebook,
     _save_notebook,
+    check_and_sign,
+    ospath_is_writable,
 )
 
 
@@ -169,6 +171,7 @@ class BundlePath:
             os.mkdir(bundle_path)
 
         self.save_bundle_file(model)
+        return model
 
     def save_bundle_file(self, model):
         content = model['content']
@@ -195,23 +198,19 @@ class BundlePath:
             file_content = content
 
         os_path = self.bundle_file
-        info = os.stat(os_path)
-        last_modified = tz.utcfromtimestamp(info.st_mtime)
-        created = tz.utcfromtimestamp(info.st_ctime)
 
         bundle_file_content = None
         if content:
             bundle_file_content = self.get_bundle_file_content()
 
+        model = BaseModel.from_filepath_dict(os_path, root_dir)
+        assert model['name'] == self.name
+
         files = self.files_pack(file_content)
-        path = os.path.relpath(self.bundle_path, root_dir)
         model = self.bundle_model_class(
-            name=self.name,
-            path=path,
-            last_modified=last_modified,
-            created=created,
             bundle_files=files,
             content=bundle_file_content,
+            **model,
         )
         return model
 
@@ -261,12 +260,13 @@ class NotebookBundlePath(BundlePath):
             return False
         return cls.is_bundle(os_path)
 
-    def save_bundle_file(self, model):
+    def save_bundle_file(self, model: NotebookModel):
         nb = cast(nbformat.NotebookNode, nbformat.from_dict(model['content']))
+        check_and_sign(nb)
 
-        # TODO: I don't remember why I did this...
-        if 'name' in nb.metadata:
-            nb.metadata['name'] = u''
+        # # TODO: I don't remember why I did this...
+        # if 'name' in nb.metadata:
+        #     nb.metadata['name'] = u''
 
         _save_notebook(self.bundle_file, nb)
 
@@ -280,31 +280,12 @@ if __name__ == '__main__':
     from nbformat.v4 import new_notebook, writes
 
     with TempDir() as td:
-        subdir = td.joinpath('subdir')
-        nb_dir = subdir.joinpath('example.ipynb')
-        nb_dir.mkdir(parents=True)
-        file1 = nb_dir.joinpath('howdy.txt')
-        with file1.open('w') as f:
-            f.write('howdy')
-
-        nb_file = nb_dir.joinpath('example.ipynb')
+        nb_dir = td.joinpath('example.ipynb')
         nb = new_notebook()
-        nb['metadata']['howdy'] = 'hi'
-        with nb_file.open('w') as f:
-            f.write(writes(nb))
+        bundle = NotebookBundlePath(nb_dir)
+        model = NotebookModel.from_nbnode(nb, name='hi.ipynb', path='hi.ipynb')
+        bundle.save(model)
+        assert nb_dir.is_dir()
 
-        nb_bundle = NotebookBundlePath(nb_dir)
-        files = nb_bundle.files
-        assert 'howdy.txt' in files
-
-        content = nb_bundle.get_bundle_file_content()
-        assert content == nb
-
-        model = nb_bundle.get_model(td)
-        assert model.is_bundle is True
-        assert model.content == nb
-        assert model.bundle_files['howdy.txt'] == 'howdy'
-        assert model.name == 'example.ipynb'
-        assert model.path == 'subdir/example.ipynb'
-
-        items = bundle_list_dir(subdir)
+        new_model = bundle.get_model(td)
+        assert new_model['content'] == nb

@@ -10,7 +10,7 @@ from traitlets import Unicode
 from IPython.utils import tz
 from jupyter_server.services.contents.filemanager import FileContentsManager
 
-from nbx_deux.models import DirectoryModel
+from nbx_deux.models import DirectoryModel, NotebookModel
 
 from ..nbx_manager import NBXContentsManager, ApiPath
 from .bundle import NotebookBundlePath, BundlePath, bundle_get_path_item
@@ -30,9 +30,12 @@ class BundleContentsManager(FileManagerMixin, NBXContentsManager):
             os_path = self._get_os_path(path=path)
         return BundlePath.valid_path(os_path)
 
+    def is_notebook(self, path: ApiPath, type=None):
+        return (type is None and path.endswith(".ipynb"))
+
     def get_bundle(self, path: ApiPath, type=None):
         os_path = self._get_os_path(path=path)
-        if type == "notebook" or (type is None and path.endswith(".ipynb")):
+        if type == "notebook" or self.is_notebook(path, type):
             bundle = NotebookBundlePath(os_path)
         else:
             bundle = BundlePath(os_path)
@@ -80,9 +83,17 @@ class BundleContentsManager(FileManagerMixin, NBXContentsManager):
         return model
 
     def save(self, model, path):
-        if self.is_bundle(path):
+        os_path = self._get_os_path(path=path)
+        is_notebook = self.is_notebook(path)
+        is_new = not os.path.exists(os_path)
+        is_new_notebook = is_new and is_notebook
+        # new files default to bundle
+        if self.is_bundle(path) or is_new_notebook:
             bundle = self.get_bundle(path)
-            return bundle.save(model)
+            bundle.save(model)
+            # refresh
+            model = self.get(path, content=False)
+            return model.asdict()
 
         return self.fm.save(model, path)
 
@@ -263,56 +274,10 @@ if __name__ == '__main__':
     with TempDir() as td:
         subdir = td.joinpath('subdir')
 
-        regular_nb = td.joinpath("regular.ipynb")
-        nb = new_notebook()
-        with regular_nb.open('w') as f:
-            f.write(writes(nb))
+        nbm = BundleContentsManager(root_dir=str(td))
 
-        regular_file = td.joinpath("sup.txt")
-        with regular_file.open('w') as f:
-            f.write("sups")
-
-        nb_dir = subdir.joinpath('example.ipynb')
-        nb_dir.mkdir(parents=True)
-        file1 = nb_dir.joinpath('howdy.txt')
-        with file1.open('w') as f:
-            f.write('howdy')
-
-        nb_file = nb_dir.joinpath('example.ipynb')
         nb = new_notebook()
         nb['metadata']['howdy'] = 'hi'
-        with nb_file.open('w') as f:
-            f.write(writes(nb))
+        model = NotebookModel.from_nbnode(nb, path='hi.ipynb', name='hi.ipynb')
 
-        # try a regular bundle
-        bundle_dir = td.joinpath('example.txt')
-        bundle_dir.mkdir(parents=True)
-        bundle_file = bundle_dir.joinpath('example.txt')
-        with bundle_file.open('w') as f:
-            f.write("regular ole bundle")
-
-        nbm = BundleContentsManager(root_dir=str(td))
-        model = nbm.get("")
-        contents_dict = model.contents_dict()
-        assert contents_dict['subdir']['type'] == 'directory'
-        assert contents_dict['subdir']['content'] is None
-
-        assert contents_dict['regular.ipynb']['type'] == 'notebook'
-        assert contents_dict['regular.ipynb']['content'] is None
-
-        assert contents_dict['sup.txt']['type'] == 'file'
-        assert contents_dict['sup.txt']['content'] is None
-
-        notebook_model = nbm.get("subdir/example.ipynb")
-
-        assert notebook_model['type'] == 'notebook'
-        assert notebook_model['is_bundle'] is True
-        assert notebook_model['bundle_files'] == {'howdy.txt': 'howdy'}
-
-        subdir_model = nbm.get("subdir")
-        subdir_contents_dict = subdir_model.contents_dict()
-        assert subdir_contents_dict['subdir/example.ipynb']['type'] == 'notebook'
-        assert subdir_contents_dict['subdir/example.ipynb']['is_bundle'] is True
-
-        nb_model = nbm.get("subdir/example.ipynb", content=False)
-        assert subdir_contents_dict['subdir/example.ipynb'] == nb_model
+        new_model = nbm.save(model, 'dale.ipynb')

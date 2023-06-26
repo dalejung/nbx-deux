@@ -1,3 +1,4 @@
+from nbx_deux.models import NotebookModel
 from nbx_deux.testing import TempDir
 from nbformat.v4 import new_notebook, writes
 
@@ -48,3 +49,16 @@ def test_notebook_bundle_file():
 
         new_model = nb_bundle.get_model(td, file_content=False)
         assert new_model.bundle_files['howdy.txt'] is None
+
+
+def test_notebook_bundle_save():
+    with TempDir() as td:
+        nb_dir = td.joinpath('example.ipynb')
+        nb = new_notebook()
+        bundle = NotebookBundlePath(nb_dir)
+        model = NotebookModel.from_nbnode(nb, name='hi.ipynb', path='hi.ipynb')
+        bundle.save(model)
+        assert nb_dir.is_dir()
+
+        new_model = bundle.get_model(td)
+        assert new_model['content'] == nb
