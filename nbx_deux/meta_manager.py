@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 
+from traitlets import Dict, Unicode
 from jupyter_server.services.contents.filemanager import FileContentsManager
 from jupyter_server.services.contents.manager import ContentsManager
 from nbx_deux.bundle_manager.bundle_nbmanager import BundleContentsManager
@@ -22,18 +23,27 @@ class ManagerMeta:
 
 
 class MetaManager(NBXContentsManager):
+    # Used to have file_dirs, but removed since bundle_dirs can handle regular files
+    bundle_dirs = Dict(
+        config=True,
+        help="BundleNBManager. Dict of alias, path"
+    )
+    trash_dir = Unicode(config=True)
+
     def __init__(self, *args, managers=None, **kwargs):
         super().__init__(*args, **kwargs)
         if managers is None:
             managers = {}
         self.managers = managers
-        self.root = RootContentsManager(meta_manager=self)
+        self.init_managers()
 
-        # TODO: The below are just testing.
-        self.managers['default'] = FileContentsManager(root_dir=self.root_dir)
-        self.managers['home'] = FileContentsManager(
-            root_dir=str(Path("~").expanduser())
-        )
+    def init_managers(self):
+        for alias, path in self.bundle_dirs.items():
+            print(alias, path)
+            fb = BundleContentsManager(root_dir=str(path), trash_dir=self.trash_dir)
+            self.managers[alias] = fb
+
+        self.root = RootContentsManager(meta_manager=self)
 
     def get_nbm_from_path(self, path) -> tuple[ContentsManager, ManagerMeta]:
         path = path.strip('/')
@@ -116,6 +126,25 @@ class MetaManager(NBXContentsManager):
         nbm, meta = self.get_nbm_from_path(path)
         return nbm.is_hidden(meta.path)
 
+    # ContentManager API 2
+
+    def delete(self, path: ApiPath):
+        """Delete a file/directory and any associated checkpoints."""
+        nbm, meta = self.get_nbm_from_path(path)
+        return nbm.delete(meta.path)
+
+    def rename(self, old_path, new_path):
+        """Rename a file and any checkpoints associated with that file."""
+        nbm, meta = self.get_nbm_from_path(old_path)
+        _new_nbm, new_meta = self.get_nbm_from_path(new_path)
+        if nbm is not _new_nbm:
+            raise Exception("Cannot rename across child content managers")
+        return nbm.rename(meta.path, new_meta.path)
+
+    def update(self, model, path):
+        nbm, meta = self.get_nbm_from_path(path)
+        return nbm.update(model, meta.path)
+
     # Checkpoints api
     def create_checkpoint(self, path: ApiPath):
         nbm, meta = self.get_nbm_from_path(path)
@@ -132,3 +161,15 @@ class MetaManager(NBXContentsManager):
     def delete_checkpoint(self, checkpoint_id, path: ApiPath):
         nbm, meta = self.get_nbm_from_path(path)
         return nbm.delete_checkpoint(checkpoint_id, meta.path)
+
+    # NBXContentsManager api
+    def delete_all_checkpoint(self, path: ApiPath):
+        nbm, meta = self.get_nbm_from_path(path)
+        return nbm.delete_all_checkpoints(meta.path)
+
+    def rename_all_checkpoint(self, old_path: ApiPath, new_path: ApiPath):
+        nbm, meta = self.get_nbm_from_path(old_path)
+        _new_nbm, new_meta = self.get_nbm_from_path(new_path)
+        if nbm is not _new_nbm:
+            raise Exception("Cannot rename across child content managers")
+        return nbm.rename_all_checkpoints(meta.path, new_meta.path)

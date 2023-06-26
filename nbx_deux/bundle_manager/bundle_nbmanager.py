@@ -121,6 +121,19 @@ class BundleContentsManager(FileManagerMixin, NBXContentsManager):
     def is_hidden(self, path):
         return self.fm.is_hidden(path)
 
+    def get_kernel_path(self, path, model=None):
+        if not self.is_bundle(path):
+            return self.fm.get_kernel_path(path, model)
+        return path
+
+    def delete_all_checkpoints(self, path):
+        if not self.is_bundle(path):
+            return self.fm.checkpoints.delete_all_checkpoints(path)
+
+    def rename_all_checkpoints(self, old_path, new_path):
+        if not self.is_bundle(old_path):
+            return self.fm.checkpoints.rename_all_checkpoints(old_path, new_path)
+
     def delete_bundle(self, path):
         if not self.is_bundle(path):
             return self.fm.delete_file(path)
