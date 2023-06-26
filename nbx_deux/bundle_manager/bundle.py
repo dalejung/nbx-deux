@@ -29,6 +29,7 @@ from nbx_deux.fileio import (
 
 @dc.dataclass(kw_only=True)
 class BundleModel(BaseModel):
+    type: str = dc.field(default='file', init=False)
     bundle_files: dict
     is_bundle: bool = True
 

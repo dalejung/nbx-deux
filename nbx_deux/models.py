@@ -246,6 +246,15 @@ class NotebookModel(BaseModel):
 class DirectoryModel(BaseModel):
     type: str = dc.field(default='directory', init=False)
 
+    def contents_dict(self):
+        if not self.content:
+            return {}
+
+        dct = {}
+        for row in self.content:
+            dct[row['path']] = row
+        return dct
+
     @classmethod
     def get_dir_content(
         cls,

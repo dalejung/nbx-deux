@@ -3,14 +3,17 @@ import os
 from pathlib import Path
 import shutil
 from jupyter_server.services.contents.fileio import FileManagerMixin
+from jupyter_server.utils import to_os_path
 
 
 from traitlets import Unicode
 from IPython.utils import tz
 from jupyter_server.services.contents.filemanager import FileContentsManager
 
+from nbx_deux.models import DirectoryModel
+
 from ..nbx_manager import NBXContentsManager, ApiPath
-from .bundle import NotebookBundlePath
+from .bundle import NotebookBundlePath, BundlePath
 
 
 class BundleContentsManager(FileManagerMixin, NBXContentsManager):
@@ -21,24 +24,53 @@ class BundleContentsManager(FileManagerMixin, NBXContentsManager):
         self.fm = FileContentsManager(root_dir=self.root_dir)
         self.bundle_class = NotebookBundlePath
 
+    def _fcm_file_type(self, path, type):
+        """
+        Just replicating FCM logic and validation for path / type
+        """
+        os_path = self._get_os_path(path=path)
+        if os.path.isdir(os_path):
+            if type not in (None, "directory"):
+                raise Exception(f"{path} is a directory not a {type}")
+            return 'directory'
+        elif type == "notebook" or (type is None and path.endswith(".ipynb")):
+            return 'notebook'
+        else:
+            if type == "directory":
+                raise Exception(f"{path} is not a directory")
+            return 'file'
+
     def is_bundle(self, path: ApiPath | Path):
         if isinstance(path, Path) and path.is_absolute():
             os_path = path
         else:
             os_path = self._get_os_path(path=path)
-        return self.bundle_class.valid_path(os_path)
+        return BundlePath.valid_path(os_path)
 
     def get_bundle(self, path: ApiPath):
         os_path = self._get_os_path(path=path)
-        bundle = self.bundle_class(os_path)
+        if self.bundle_class.valid_path(os_path):
+            bundle = self.bundle_class(os_path)
+        else:
+            bundle = BundlePath(os_path)
         return bundle
 
     def get(self, path, content=True, type=None, format=None):
-        if self.is_bundle(path):
-            bundle = self.get_bundle(path)
-            model = bundle.get_model(self.root_dir, content=content)
-            return model.asdict()
-        return self.fm.get(path, content=content, type=type, format=format)
+        """
+        TODO: I imagine I could create a multi step process where:
+            1. List all directory content where files and bundle are same just with an is_bundle
+            2. Run the same fcm_type logic on paths
+            3. Dispatch to fcm / bundle depending on is_bundle flag.
+
+        The idea being that on some level bundle files should act transparently as single files.
+        """
+        os_path = self._get_os_path(path=path)
+        # TODO: Someday we might allow accessing other files in bundle. But that's later.
+        # This will also handle any non bundle notebooks
+        if os.path.isfile(os_path):
+            return self.fm.get(path, content=content, type=type, format=format)
+
+        return self.bundle_get(path, content=content, type=type, format=format)
 
     def save(self, model, path):
         if self.is_bundle(path):
@@ -89,46 +121,27 @@ class BundleContentsManager(FileManagerMixin, NBXContentsManager):
         model['type'] = 'directory'
         return model
 
-    def list_dirs(self, path):
-        os_path = Path(self._get_os_path(path=path))
+    def bundle_get(self, path, content=True, type=None, format=None):
+        fcm_type = self._fcm_file_type(path, type)
 
-        dirs = []
-        for p in os_path.iterdir():
-            if not p.is_dir():
-                continue
+        if self.is_bundle(path):
+            bundle = self.get_bundle(path)
+            model = bundle.get_model(self.root_dir, content=content)
+            return model
 
-            if self.is_bundle(p):
-                continue
+        # non content directories can just use fcm.
+        # NOTE: We first have to check that the directory is not a bundle.
+        if fcm_type == 'directory' and content is not True:
+            return self.fm.get(path, content=False)
 
-            relpath = str(p.relative_to(path))
-            dirs.append(self._dir_model(relpath))
-        return dirs
-
-    def list_notebooks(self, path):
         os_path = self._get_os_path(path=path)
-        bundles = self.bundle_class.iter_bundles(os_path)
-        notebooks = []
-        for bundle in bundles:
-            model = bundle.get_model(self.root_dir, content=False)
-            notebooks.append(model)
-
-        # also grab regular notebooks
-        dir_model = self.fm.get(path=path, content=True)
-        for model in dir_model['content']:
-            if model['type'] == 'notebook':
-                notebooks.append(model)
-
-        return notebooks
-
-    def list_files(self, path):
-        files = []
-
-        dir_model = self.fm.get(path=path, content=True)
-        for model in dir_model['content']:
-            if model['type'] == 'file':
-                files.append(model)
-
-        return files
+        model = DirectoryModel.from_filepath(
+            os_path,
+            self.root_dir,
+            content=content,
+            model_get=self.get,  # use out CM.get logic
+        )
+        return model
 
     def delete_bundle(self, path):
         if not self.is_bundle(path):
@@ -250,3 +263,65 @@ class BundleContentsManager(FileManagerMixin, NBXContentsManager):
     def delete_checkpoint(self, checkpoint_id, path=''):
         """delete a checkpoint for a notebook"""
         raise NotImplementedError("must be implemented in a subclass")
+
+
+if __name__ == '__main__':
+    from nbformat.v4 import new_notebook, writes
+
+    from nbx_deux.testing import TempDir
+    with TempDir() as td:
+        subdir = td.joinpath('subdir')
+
+        regular_nb = td.joinpath("regular.ipynb")
+        nb = new_notebook()
+        with regular_nb.open('w') as f:
+            f.write(writes(nb))
+
+        regular_file = td.joinpath("sup.txt")
+        with regular_file.open('w') as f:
+            f.write("sups")
+
+        nb_dir = subdir.joinpath('example.ipynb')
+        nb_dir.mkdir(parents=True)
+        file1 = nb_dir.joinpath('howdy.txt')
+        with file1.open('w') as f:
+            f.write('howdy')
+
+        nb_file = nb_dir.joinpath('example.ipynb')
+        nb = new_notebook()
+        nb['metadata']['howdy'] = 'hi'
+        with nb_file.open('w') as f:
+            f.write(writes(nb))
+
+        # try a regular bundle
+        bundle_dir = td.joinpath('example.txt')
+        bundle_dir.mkdir(parents=True)
+        bundle_file = bundle_dir.joinpath('example.txt')
+        with bundle_file.open('w') as f:
+            f.write("regular ole bundle")
+
+        nbm = BundleContentsManager(root_dir=str(td))
+        model = nbm.get("")
+        contents_dict = model.contents_dict()
+        assert contents_dict['subdir']['type'] == 'directory'
+        assert contents_dict['subdir']['content'] is None
+
+        assert contents_dict['regular.ipynb']['type'] == 'notebook'
+        assert contents_dict['regular.ipynb']['content'] is None
+
+        assert contents_dict['sup.txt']['type'] == 'file'
+        assert contents_dict['sup.txt']['content'] is None
+
+        notebook_model = nbm.get("subdir/example.ipynb")
+
+        assert notebook_model['type'] == 'notebook'
+        assert notebook_model['is_bundle'] is True
+        assert notebook_model['bundle_files'] == {'howdy.txt': 'howdy'}
+
+        subdir_model = nbm.get("subdir")
+        subdir_contents_dict = subdir_model.contents_dict()
+        assert subdir_contents_dict['subdir/example.ipynb']['type'] == 'notebook'
+        assert subdir_contents_dict['subdir/example.ipynb']['is_bundle'] is True
+
+        nb_model = nbm.get("subdir/example.ipynb", content=False)
+        assert subdir_contents_dict['subdir/example.ipynb'] == nb_model
