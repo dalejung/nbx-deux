@@ -15,7 +15,7 @@ In the above setup `/root/frank.txt` is the bundle_path.
 import os
 from pathlib import Path
 import dataclasses as dc
-from typing import Literal, cast
+from typing import ClassVar, Literal, cast
 
 import nbformat
 from IPython.utils import tz
@@ -72,6 +72,7 @@ class BundleModel(BaseModel):
 @dc.dataclass(kw_only=True)
 class NotebookBundleModel(BundleModel):
     type: str = dc.field(default='notebook', init=False)
+    default_format: ClassVar = 'json'
 
 
 class BundlePath:

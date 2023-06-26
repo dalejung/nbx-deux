@@ -43,7 +43,13 @@ def test_bundle_contents_manager():
     with TempDir() as td:
         stage_bundle_workspace(td)
         nbm = BundleContentsManager(root_dir=str(td))
-        model = nbm.get("")
+        # NOTE: sometimes we get a 1.
+        model = nbm.get("", content=1)  # type: ignore
+        model2 = nbm.get("", content=True)  # type: ignore
+        assert model.asdict() == model2.asdict()
+
+        model_dict = model.asdict()
+        assert model_dict['format'] == 'json'
         contents_dict = model.contents_dict()
 
         assert contents_dict['example.txt']['type'] == 'file'
@@ -68,6 +74,7 @@ def test_bundle_contents_manager():
 
         assert notebook_model['type'] == 'notebook'
         assert notebook_model['is_bundle'] is True
+        assert notebook_model['format'] == 'json'
         assert notebook_model['bundle_files'] == {'howdy.txt': 'howdy'}
         correct = new_notebook()
         correct['metadata']['howdy'] = 'hi'

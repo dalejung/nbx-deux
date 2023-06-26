@@ -57,8 +57,8 @@ class BundleContentsManager(FileManagerMixin, NBXContentsManager):
             if type not in (None, "directory"):
                 raise Exception(f"{path} is a directory not a {type}")
 
-            if content is not True:
-                return self.fm.get(path, content=False)
+            if not content:
+                return self.fm.get(path, content=content)
             else:
                 return self.get_dir(path, content)
 
