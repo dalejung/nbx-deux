@@ -222,6 +222,7 @@ class DirectoryModel(BaseModel):
         content=True,
         model_get=None
     ):
+
         # Default Directory root_dir to os_path
         if root_dir is None:
             root_dir = os_path
@@ -233,6 +234,10 @@ class DirectoryModel(BaseModel):
         model["size"] = None
 
         if content:
+            # model_get is ContentsManager.get or default_model_get which mimics
+            # the CM logic without needing a CM. This will be wrong for things
+            # like Bundles which *require* the specifc bundle logic to correctly
+            # return notebooks/files/dirs.
             if model_get is None:
                 model_get = partial(default_model_get, root_dir=root_dir)
             content = cls.get_dir_content(
@@ -256,7 +261,6 @@ if __name__ == '__main__':
 
     model = FileModel.from_filepath(filepath, root_dir=root_dir)
     assert model.asdict() == fcm_model
-
 
     fcm_model = fcm.get(path, content=False)
     model = FileModel.from_filepath(filepath, root_dir=root_dir, content=False)
