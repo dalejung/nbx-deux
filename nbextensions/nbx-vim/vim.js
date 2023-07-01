@@ -255,6 +255,35 @@ function IPython_vim_patch(CodeMirror, IPython, kbmod, cellmod, textcellmod, cod
     var cell_type = cell.cell_type;
     var textcell = cell instanceof TextCell || cell.dual_mode;
 
+    console.log(event)
+    if (event.key == 'p') {
+      var cursor = cell.code_mirror.getCursor()
+      var doc = cell.code_mirror.getDoc()
+      navigator.clipboard.readText().then((value) => {
+        doc.replaceRange(value, cursor);
+      })
+      return true
+    }
+    if (event.key == 'y') {
+      // TODO: This has the current issue of taking over yy
+      // Maybe better to hook into codemirror itself and takevoer the paste
+      // action/yank action?
+      let deepVim = cell.code_mirror.state.vim;
+      let anchor = cell.code_mirror.state.vim.sel.anchor;
+      var selection = cell.code_mirror.getSelection()
+      var doc = cell.code_mirror.getDoc()
+      var cursor = cell.code_mirror.getCursor()
+      navigator.clipboard.writeText(selection).then(
+        () => {
+          // Reset back to original cursor
+          cell.code_mirror.setSelection(anchor, anchor);
+        },
+        () => {
+          console.log('write failed')
+        }
+      );
+      return true
+    }
 
     // ` : enable console
     if (event.which === 192) {
@@ -333,22 +362,22 @@ function IPython_vim_patch(CodeMirror, IPython, kbmod, cellmod, textcellmod, cod
       };
     }
     // Y: copy cell
-    if (event.which === 89 && event.shiftKey) {
+    if (event.key == 'Y') {
       that.copy_cell();
       return true;
     }
     // D: delete cell / cut
-    if (event.which === 68 && event.shiftKey) {
+    if (event.key == 'D') {
       that.cut_cell();
       return true;
     }
     // P: paste cell
-    if (event.which === 80 && event.shiftKey) {
+    if (event.key == 'P') {
       that.paste_cell_below();
       return true;
     }
     // B: open new cell below
-    if (event.which === 66 && event.shiftKey) {
+    if (event.key == 'B') {
       that.insert_cell_below('code');
       that.setVIMode('INSERT');
       return true;
