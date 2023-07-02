@@ -285,27 +285,20 @@ function IPython_vim_patch(CodeMirror, IPython, kbmod, cellmod, textcellmod, cod
       return true
     }
 
-    // ` : enable console
-    if (event.which === 192) {
-      $(IPython.console_book.element).toggle();
-      IPython.console_book.focus_selected();
-      return true;
-    }
-
     // Meta S: save_notebook
-    if ((event.ctrlKey || event.metaKey) && event.keyCode == 83) {
+    if ((event.ctrlKey || event.metaKey) && event.key == 's') {
       that.save_notebook();
       event.preventDefault();
       return false;
     }
 
     // K: up cell
-    if (event.which === 75 && (event.shiftKey || event.metaKey)) {
+    if (event.key === 'K') {
       that.select_prev();
       return true;
     }
     // k: up
-    if (event.which === 75 && !event.shiftKey) {
+    if (event.key === 'k') {
       // textcell. Treat as one line item when not rendered
       if (textcell && cell.rendered) {
         that.select_prev();
@@ -331,12 +324,12 @@ function IPython_vim_patch(CodeMirror, IPython, kbmod, cellmod, textcellmod, cod
       }
     }
     // J: down cell
-    if (event.which === 74 && (event.shiftKey || event.metaKey)) {
+    if (event.key === 'J') {
       that.select_next();
       return true;
     }
     // j: down
-    if (event.which === 74 && !event.shiftKey) {
+    if (event.key === 'j') {
       // textcell. Treat as one line item when not rendered
       if (textcell && cell.rendered) {
         that.select_next();
@@ -384,65 +377,65 @@ function IPython_vim_patch(CodeMirror, IPython, kbmod, cellmod, textcellmod, cod
     }
     // shift+O or apple + O: open new cell below
     // I know this is wrong but i hate hitting A
-    if (event.which === 79 && (event.metaKey || event.shiftKey)) {
+    if (event.key === 'O') {
       that.insert_cell_below('code');
       that.setVIMode('INSERT');
       return true;
     }
     // A: open new cell above
-    if (event.which === 65 && event.shiftKey) {
+    if (event.key === 'A') {
       that.insert_cell_above('code');
       that.setVIMode('INSERT');
       return true;
     }
 
     // control/apple E: execute (apple - E is easier than shift E)
-    if ((event.ctrlKey || event.metaKey) && event.keyCode == 69) {
+    if ((event.ctrlKey || event.metaKey) && event.key == 'e') {
       that.execute_cell();
       return true;
     }
     // E:  execute
-    if (event.which === 69 && event.shiftKey) {
+    if (event.key === 'E') {
       that.execute_cell();
       return true;
     }
     // F: toggle output
-    if (event.which === 70 && event.shiftKey) {
+    if (event.key === 'F') {
       that.toggle_output();
       return true;
     }
     // M: markdown
-    if (event.which === 77 && event.shiftKey) {
+    if (event.key == 'M') {
       that.to_markdown();
       return true;
     }
     // C: codecell
-    if (event.which === 77 && event.shiftKey) {
+    if (event.key === 'C') {
       that.to_code();
       return true;
     }
     // i: insert. only relevant on textcell
     var rendered = cell.rendered;
-    if (textcell && rendered && event.which === 73 && !event.shiftKey) {
+    if (textcell && rendered && event.key === 'i') {
       cell.unrender();
       cell.focus_editor();
       return true;
     }
 
-    // i: use our internal vimode setter. 
-    if ((textcell && !rendered) && event.which === 73 && !event.shiftKey) {
+    // i: use our internal vimode setter.
+    if ((textcell && !rendered) && event.key === 'i') {
       that.setVIMode('INSERT');
       return true;
     }
 
     // i: use our internal vimode setter. 
-    if (!textcell && event.which === 73 && !event.shiftKey) {
+    if (!textcell && event.key === 'i') {
       that.setVIMode('INSERT');
       return true;
     }
 
     // esc: get out of insert and render textcell
-    if (textcell && !rendered && event.which === 27 && !event.shiftKey) {
+    if (textcell && !rendered && event.key === 'Escape' && !event.shiftKey) {
       //cell.render();
       //return false;
     }
@@ -454,26 +447,26 @@ function IPython_vim_patch(CodeMirror, IPython, kbmod, cellmod, textcellmod, cod
     var textcell = cell instanceof TextCell || cell.dual_mode;
 
     // esc: use our internal vim mode setter
-    if (event.which === 27 && !event.shiftKey) {
+    if (event.key === 'Escape' && !event.shiftKey) {
       that.setVIMode('NORMAL');
       return true;
     }
 
     // control/apple E: execute (apple - E is easier than shift E)
-    if ((event.ctrlKey || event.metaKey) && event.keyCode == 69) {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'e') {
       that.execute_cell();
       return true;
     }
-    if (event.which === 74 && (event.metaKey)) {
+    if (event.key === 'j' && (event.metaKey)) {
       that.select_next();
       return true;
     }
-    if (event.which === 75 && (event.metaKey)) {
+    if (event.key === 'k' && (event.metaKey)) {
       that.select_prev();
       return true;
     }
     // Meta S: save_notebook
-    if ((event.ctrlKey || event.metaKey) && event.keyCode == 83) {
+    if ((event.ctrlKey || event.metaKey) && event.key === 's') {
       that.save_notebook();
       event.preventDefault();
       return false;
