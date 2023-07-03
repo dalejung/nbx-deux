@@ -27,6 +27,7 @@ from nbx_deux.fileio import (
     check_and_sign,
     ospath_is_writable,
 )
+from nbx_deux.normalized_notebook import NormalizedNotebookPy
 
 
 @dc.dataclass(frozen=True, kw_only=True)
@@ -73,12 +74,23 @@ class BundleModel(BaseModel):
 
 @dc.dataclass(kw_only=True)
 class NotebookBundleModel(BundleModel):
+    content: nbformat.NotebookNode
     type: str = dc.field(default='notebook', init=False)
     default_format: ClassVar = 'json'
 
+    def __repr__(self):
+        content = self.content
+        cell_count = len(content['cells'])
+        metadata = content['metadata']
+        notebook_node_repr = f"NotebookNode({cell_count=}, {metadata=})"
+        return (
+            f"NotebookBundleModel(name={self.name}, path={self.path}"
+            f", content={notebook_node_repr})"
+        )
+
 
 class BundlePath:
-    bundle_model_class = BundleModel
+    bundle_model_class: ClassVar[type] = BundleModel
 
     def __init__(self, bundle_path):
         bundle_path = Path(bundle_path)
@@ -99,6 +111,8 @@ class BundlePath:
     def files(self):
         """
         files keys will be name relative to bundle_path
+
+        NOTE: This is not recursive depth.
         """
         try:
             files = [
@@ -192,10 +206,13 @@ class BundlePath:
             with open(filepath, 'w') as f:
                 f.write(fcontent)
 
-    def get_model(self, root_dir, content=True, file_content=None):
+    def get_model(self, root_dir=None, content=True, file_content=None):
         # default getting file_content to content
         if file_content is None:
             file_content = content
+
+        if root_dir is None:
+            root_dir = self.bundle_path
 
         os_path = self.bundle_file
 
@@ -264,10 +281,28 @@ class NotebookBundlePath(BundlePath):
             return False
         return cls.is_bundle(os_path)
 
+    def normalized_dir(self, nb: nbformat.NotebookNode):
+        normalized_dir = self.bundle_path.joinpath('_normalized')
+        return normalized_dir
+
+    def save_normalized(self, nb: nbformat.NotebookNode):
+        normalized_dir = self.normalized_dir(nb)
+        normalized_dir.mkdir(exist_ok=True, parents=True)
+
+        nnpy = NormalizedNotebookPy(nb)
+        content = nnpy.to_pyfile()
+        basename, ext = os.path.splitext(self.bundle_file.name)
+        new_filename = basename + '.py'
+        new_filepath = normalized_dir.joinpath(new_filename)
+        with open(new_filepath, 'w') as f:
+            f.write(content)
+
     def save_bundle_file(self, model: NotebookModel):
         nb = cast(nbformat.NotebookNode, nbformat.from_dict(model['content']))
         check_and_sign(nb)
         _save_notebook(self.bundle_file, nb)
+        # WIP
+        self.save_normalized(nb)
 
     def get_bundle_file_content(self):
         nb = _read_notebook(self.bundle_file)
@@ -288,3 +323,4 @@ if __name__ == '__main__':
 
         new_model = bundle.get_model(td)
         assert new_model['content'] == nb
+        assert bundle.bundle_path.joinpath('_normalized/example.py').exists()
