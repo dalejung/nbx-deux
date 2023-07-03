@@ -19,7 +19,17 @@ class NormalizedNotebookPy:
         self.cell_map = {cell['id']: cell for cell in notebooknode['cells']}
 
     def get_pyheader(self, cell):
-        header = f"# id={cell['id']} cell_type={cell['cell_type']}"
+        bits = []
+
+        cell_type = cell['cell_type']
+        if cell_type != 'code':
+            cell_type_bit = f"[{cell_type}]"
+            bits.append(cell_type_bit)
+
+        bits.append(f"id={cell['id']}")
+        metadata = " ".join(bits)
+
+        header = f"# %% {metadata}"
         return header
 
     @cached_property
@@ -101,22 +111,29 @@ def notebooknode_to_nnpy(nb_node: NotebookNode):
 
 
 def parse_nnpy_header(line):
-    if not line.startswith('#'):
+    if not line.startswith('# %%'):
         return
 
     info = {}
-    bits = line[1:].split(' ')
+    bits = line[4:].split(' ')
     for bit in bits:
         if not bit.strip():
             continue
+        if bit.startswith('[') and bit.endswith(']'):
+            info['cell_type'] = bit[1:-1]
+
         try:
             k, v = bit.split('=')
             info[k] = v
         except Exception:
             pass
 
+    # default to code
+    if 'cell_type' not in info:
+        info['cell_type'] = 'code'
+
     # we require at least id/cell_type
-    if not {'id', 'cell_type'}.issubset(set(info.keys())):
+    if not {'id'}.issubset(set(info.keys())):
         return
 
     return info
