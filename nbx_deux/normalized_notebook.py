@@ -1,3 +1,4 @@
+import itertools
 from functools import cached_property
 from pathlib import Path
 from typing import cast
@@ -11,6 +12,7 @@ from nbx_deux.nb_model import (
     NBOutput,
     NBOutputType,
 )
+from nbx_deux.nbx_convert import NBXCellExport, NBXCellScriptCellReader
 
 
 class NormalizedNotebookPy:
@@ -41,11 +43,12 @@ class NormalizedNotebookPy:
 
         for cell in skeleton['cells']:
             id = cell['id']
-            source_cells[id] = {
+            source_cells[id] = NBXCellExport(NotebookNode({
                 'id': id,
                 'cell_type': cell['cell_type'],
                 'source': cell.pop('source'),
-            }
+                'metadata': cell['metadata'],
+            }), 'python')
 
             if outputs := cell.pop('outputs', None):
                 sentinel_outputs = []
@@ -63,44 +66,11 @@ class NormalizedNotebookPy:
             'all_outputs': all_outputs
         }
 
-    def munge_source(self, source):
-        source = source.strip()
-
-        if source.startswith('%%'):
-            source = f'"""\n{source}\n"""'
-            return source
-
-        lines = []
-        for line in source.split('\n'):
-            if line.startswith('!') or line.startswith('%'):
-                line = f"# |{line}|"
-            lines.append(line)
-
-        source = '\n'.join(lines)
-        return source
-
-
     def to_pyfile(self):
         outs = []
         for id, cell in self.components['source_cells'].items():
-            cell_type = cell['cell_type']
-            source = cell['source']
-
-            source = self.munge_source(source)
-            if not source.strip():
-                continue
-
-            header = self.get_pyheader(cell)
-
-            out = ""
-            match cell_type:
-                case 'code':
-                    out = f"{header}\n\n{source}"
-                case 'markdown':
-                    out = f'{header}\n\n"""\n{source}\n"""'
-                case _:
-                    raise Exception(f"Dunno how to handle this {cell_type=}")
-
+            out = cell.cell_to_text()
+            out = "\n".join(out)
             outs.append(out)
 
         return "\n\n".join(outs)
@@ -139,16 +109,14 @@ def parse_nnpy_header(line):
     return info
 
 
-def nnpy_to_sections(content):
-    lines = content.splitlines()
-    sections = {}
-    section = None
-    for line in lines:
-        header = parse_nnpy_header(line)
-        if header:
-            section = sections.setdefault(header['id'], NBSection(**header))
-        else:
-            if section is None:
-                raise Exception(f"File did not start with header {line}")
-            section.append(line)
-    return sections
+def nnpy_to_cells(content):
+    reader = NBXCellScriptCellReader({})
+    lines = content.split('\n')
+
+    cells = {}
+    offset = 0
+    while offset < len(lines):
+        new_cell, pos_next_cell = reader.read(lines[offset:])
+        cells[new_cell['id']] = new_cell
+        offset += pos_next_cell
+    return cells
