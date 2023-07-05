@@ -25,6 +25,7 @@ from nbx_deux.fileio import (
     _save_notebook,
     check_and_sign,
 )
+from nbx_deux.nbx_convert import upgrade_nb
 from nbx_deux.normalized_notebook import NBXNotebookExport
 
 
@@ -306,6 +307,8 @@ class NotebookBundlePath(BundlePath):
 
     def save_bundle_file(self, model: NotebookModel):
         nb = cast(nbformat.NotebookNode, nbformat.from_dict(model['content']))
+        # upgrade to latest version
+        upgrade_nb(nb)
         check_and_sign(nb)
         _save_notebook(self.bundle_file, nb)
         # WIP
