@@ -8,6 +8,11 @@ from jupytext.cell_to_text import (
 
 
 class NBXCellScriptCellReader(DoublePercentScriptCellReader):
+    def __init__(self, fmt=None, default_language=None):
+        if fmt is None:
+            fmt = {}
+        super().__init__(fmt=fmt, default_language=default_language)
+
     def read(self, lines):
         cell, pos_next_cell = super().read(lines)
         # super call generates a new id. We replace with metadata id
@@ -20,7 +25,7 @@ class NBXCellExport(DoublePercentCellExporter):
     """
     CellExporter that assumes cells all have ids.
     """
-    def __init__(self, cell, default_language, *args, **kwargs):
+    def __init__(self, cell, default_language='python', *args, **kwargs):
         super().__init__(cell, default_language, *args, **kwargs)
         self.cell_id = cell.id
 
@@ -29,16 +34,27 @@ class NBXCellExport(DoublePercentCellExporter):
         return super().cell_to_text()
 
 
-def upgrade_nb(nb_file):
-    with open(nb_file) as f:
-        nb = current.reads(f.read())
-
+def upgrade_nb(nb):
     current_format_tuple = (
         current.nbformat,
         current.nbformat_minor,
     )
     format_tuple = (nb['nbformat'], nb['nbformat_minor'])
     if format_tuple < current_format_tuple:
-        upgraded = current.convert.upgrade(nb)
+        current.convert.upgrade(nb)
+        return True
+    return False
+
+
+def upgrade_nb_on_file(nb_file):
+    with open(nb_file) as f:
+        nb = current.reads(f.read())
+        upgraded = upgrade_nb(nb)
+        if not upgraded:
+            return
         with open(nb_file, 'w') as f:
             f.write(current.writes(upgraded))
+
+
+if __name__ == '__main__':
+    ...

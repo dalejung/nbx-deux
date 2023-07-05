@@ -1,21 +1,15 @@
-import itertools
 from functools import cached_property
-from pathlib import Path
-from typing import cast
 import copy
 
 from nbformat import NotebookNode
-
-
-from nbx_deux.nb_model import (
-    NBSection,
-    NBOutput,
-    NBOutputType,
+from nbx_deux.nbx_convert import (
+    NBXCellExport,
+    NBXCellScriptCellReader,
+    upgrade_nb,
 )
-from nbx_deux.nbx_convert import NBXCellExport, NBXCellScriptCellReader
 
 
-class NormalizedNotebookPy:
+class NBXNotebookExport:
     def __init__(self, notebooknode: NotebookNode):
         self.notebooknode = notebooknode
         self.cell_map = {cell['id']: cell for cell in notebooknode['cells']}
@@ -76,40 +70,7 @@ class NormalizedNotebookPy:
         return "\n\n".join(outs)
 
 
-def notebooknode_to_nnpy(nb_node: NotebookNode):
-    return NormalizedNotebookPy(nb_node)
-
-
-def parse_nnpy_header(line):
-    if not line.startswith('# %%'):
-        return
-
-    info = {}
-    bits = line[4:].split(' ')
-    for bit in bits:
-        if not bit.strip():
-            continue
-        if bit.startswith('[') and bit.endswith(']'):
-            info['cell_type'] = bit[1:-1]
-
-        try:
-            k, v = bit.split('=')
-            info[k] = v
-        except Exception:
-            pass
-
-    # default to code
-    if 'cell_type' not in info:
-        info['cell_type'] = 'code'
-
-    # we require at least id/cell_type
-    if not {'id'}.issubset(set(info.keys())):
-        return
-
-    return info
-
-
-def nnpy_to_cells(content):
+def nbxpy_to_cells(content):
     reader = NBXCellScriptCellReader({})
     lines = content.split('\n')
 

@@ -18,16 +18,14 @@ import dataclasses as dc
 from typing import ClassVar, Literal, cast
 
 import nbformat
-from IPython.utils import tz
 
 from nbx_deux.models import BaseModel, NotebookModel
 from nbx_deux.fileio import (
     _read_notebook,
     _save_notebook,
     check_and_sign,
-    ospath_is_writable,
 )
-from nbx_deux.normalized_notebook import NormalizedNotebookPy
+from nbx_deux.normalized_notebook import NBXNotebookExport
 
 
 @dc.dataclass(frozen=True, kw_only=True)
@@ -281,19 +279,28 @@ class NotebookBundlePath(BundlePath):
             return False
         return cls.is_bundle(os_path)
 
-    def normalized_dir(self, nb: nbformat.NotebookNode):
-        normalized_dir = self.bundle_path.joinpath('_normalized')
+    def nbx_dir(self, nb: nbformat.NotebookNode):
+        normalized_dir = self.bundle_path.joinpath('_nbx')
         return normalized_dir
 
-    def save_normalized(self, nb: nbformat.NotebookNode):
-        normalized_dir = self.normalized_dir(nb)
-        normalized_dir.mkdir(exist_ok=True, parents=True)
+    def save_nbx_extract(self, nb: nbformat.NotebookNode):
+        """
+        The idea behind this save command is to split up the ipynb into component parts.
+        TODO:
+            1. nbxpy file based on percent format
+            2. ipynb skeleton
+            3. extracted outputs
 
-        nnpy = NormalizedNotebookPy(nb)
+        For now this only goes one way. Notebook => nbxpy
+        """
+        nbx_dir = self.nbx_dir(nb)
+        nbx_dir.mkdir(exist_ok=True, parents=True)
+
+        nnpy = NBXNotebookExport(nb)
         content = nnpy.to_pyfile()
         basename, ext = os.path.splitext(self.bundle_file.name)
         new_filename = basename + '.py'
-        new_filepath = normalized_dir.joinpath(new_filename)
+        new_filepath = nbx_dir.joinpath(new_filename)
         with open(new_filepath, 'w') as f:
             f.write(content)
 
@@ -302,7 +309,7 @@ class NotebookBundlePath(BundlePath):
         check_and_sign(nb)
         _save_notebook(self.bundle_file, nb)
         # WIP
-        self.save_normalized(nb)
+        self.save_nbx_extract(nb)
 
     def get_bundle_file_content(self):
         nb = _read_notebook(self.bundle_file)
@@ -323,4 +330,4 @@ if __name__ == '__main__':
 
         new_model = bundle.get_model(td)
         assert new_model['content'] == nb
-        assert bundle.bundle_path.joinpath('_normalized/example.py').exists()
+        assert bundle.bundle_path.joinpath('_nbx/example.py').exists()
