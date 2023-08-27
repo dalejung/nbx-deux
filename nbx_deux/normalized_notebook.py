@@ -74,10 +74,15 @@ def nbxpy_to_cells(content):
     reader = NBXCellScriptCellReader({})
     lines = content.split('\n')
 
-    cells = {}
+    cells = []
+    seen = set()
     offset = 0
     while offset < len(lines):
         new_cell, pos_next_cell = reader.read(lines[offset:])
-        cells[new_cell['id']] = new_cell
+        cell_id = new_cell['id']
+        if cell_id in seen:
+            raise Exception(f"Got duplicated cell_ids {cell_id=}")
+        seen.add(cell_id)
+        cells.append(new_cell)
         offset += pos_next_cell
     return cells

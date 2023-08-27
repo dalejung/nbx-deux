@@ -1,5 +1,4 @@
 from jupytext.formats import (
-    NotebookFormatDescription,
     _SCRIPT_EXTENSIONS,
 )
 from nbformat import v4 as current
