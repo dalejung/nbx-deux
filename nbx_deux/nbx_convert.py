@@ -1,3 +1,7 @@
+from jupytext.formats import (
+    NotebookFormatDescription,
+    _SCRIPT_EXTENSIONS,
+)
 from nbformat import v4 as current
 from jupytext.cell_reader import (
     DoublePercentScriptCellReader,
@@ -26,12 +30,26 @@ class NBXCellExport(DoublePercentCellExporter):
     CellExporter that assumes cells all have ids.
     """
     def __init__(self, cell, default_language='python', *args, **kwargs):
+        kwargs.setdefault('fmt', NBX_FORMAT)
         super().__init__(cell, default_language, *args, **kwargs)
         self.cell_id = cell.id
 
     def cell_to_text(self):
         self.metadata['id'] = self.cell_id
         return super().cell_to_text()
+
+
+ext = '.py'
+NBX_FORMAT = dict(
+    format_name="nbxpercent",
+    extension=ext,
+    header_prefix=_SCRIPT_EXTENSIONS[ext]["comment"],
+    header_suffix=_SCRIPT_EXTENSIONS[ext].get("comment_suffix", ""),
+    cell_reader_class=NBXCellScriptCellReader,
+    cell_exporter_class=NBXCellExport,
+    current_version_number="1.3",
+    min_readable_version_number="1.1",
+)
 
 
 def upgrade_nb(nb):
